@@ -83,6 +83,30 @@ class Exporter(unittest.TestCase):
         self.assertEqual(ex.active_aps['AA:BB:CC:DD:EE:FF']['ssid'],'Test AP')
     def test_metrics_endpoint_exists(self):self.assertTrue(hasattr(ex.MetricsHandler,'do_GET'))
 
+class InstallIntegrity(unittest.TestCase):
+    def test_clean_install_includes_all_manifest_entries(self):
+        # A release is runnable if and only if its installed SHA256SUMS passes.
+        import os
+        with tempfile.TemporaryDirectory() as t:
+            home=Path(t)/'home'
+            home.mkdir()
+            dest=Path(t)/'installed'
+            env=os.environ.copy()
+            env.update(HOME=str(home), BCI_ORBITAL_HOME=str(dest), XDG_RUNTIME_DIR='')
+            completed=subprocess.run(['bash',str(ROOT/'install_orbital.sh')],
+                                     capture_output=True,text=True,env=env,timeout=25)
+            self.assertEqual(completed.returncode,0,completed.stderr)
+            checked=subprocess.run(['sha256sum','-c','--quiet','SHA256SUMS'],
+                                   cwd=dest,capture_output=True,text=True,timeout=15)
+            self.assertEqual(checked.returncode,0,checked.stderr)
+
+    def test_nested_release_files_preserved(self):
+        # GitHub Actions, .gitignore, and contributor docs are installed, not just hashed.
+        source=(ROOT/'install_orbital.sh').read_text()
+        for name in ('.github/workflows/ci.yml','.gitignore','CONTRIBUTING.md'):
+            self.assertIn(name,source)
+
+
 class Package(unittest.TestCase):
     def test_compose_services(self):
         text=(ROOT/'compose.yaml').read_text()
