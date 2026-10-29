@@ -1,5 +1,9 @@
 {
   "base_release": "4.6.10-C2HUNT",
+  "branding": {
+    "description": "Cerberus at the BCI gate, black, maroon and cyan; documentation and GitHub repository hero artwork",
+    "image": "assets/cerberus-bci.jpg"
+  },
   "capabilities": [
     "dual passive capture services",
     "beacon profiles by BSSID",
@@ -20,12 +24,13 @@
     ".gitignore": "d74fb7bc7550cca499d88d276ab90a6aa9a5e13f5e6a6e57b33dac2487a48c0a",
     "CONTRIBUTING.md": "582517cd559d2f99603d01deea187fe612274ab5cf6eb903cf787bb35ce8bfb6",
     "Dockerfile": "7b2bc8eeb633fd484388c6df2c1affa0cff8083b336cee16edfda7102c7005ed",
-    "README.md": "74481183e2877dae21b2ccefe6a3b74ca90851edb3bd4a0273018c18d92c1290",
+    "README.md": "6bd92081590dbce3e6afa90fe4a652b7e913ce87c4d623dff07a4d026955e2c5",
+    "assets/cerberus-bci.jpg": "f8d79dda8b424fefa512e927efb0273264094028754e674875428bebbe8d7b1f",
     "bci-sentinel-gui.service": "d7bd32e98afcc42956ae638c58cb24f35ed03c0b293a7b0e8230ba47f2f69b40",
     "bci_monitor_select.py": "3e9010aa6ef8a2e8f412e245a5be92659fec59fee30d263e25dd341c7dc612f8",
     "compose.yaml": "25d859c4de310ddd95391b48421d3fc619323bee81f9f76fd92b806709261dec",
     "flow_intel.py": "0f61d5ae6353993c74db94da75eae738cec4f7c971379e73d8dfd19ca8043fb8",
-    "install_orbital.sh": "9a4959a5dcd841c83a8da67337caca77be180c6dd24ec7e54bb7d9d6c9eaaff1",
+    "install_orbital.sh": "93437aac989877c0bb1b549d42245b262e0645b4d821223615958440d73301b9",
     "orbitalctl.sh": "f76c67fe38dbefa77d339f8c34c096df37cde3cfe430a181f31e8af090d1a5a0",
     "sentinel_exporter.py": "d305fc8728cf209462d0b6936dac2781d26f274795af59b860d5bdea8dee910a",
     "sentinel_gui.py": "22bd9d2310a46589a348300b01990e309d8f1d991328d7384b0b622e2fc2c10e",
@@ -33,8 +38,9 @@
     "tests/test_auto_trace.py": "6a9b0bf342cf9df81b0e12fd87af605a4b2203bfa1277171948816466ebe053f",
     "tests/test_c2_hunt.py": "bd5b34c129afd7b4c7b04ac0567e930412a39ad6a1a1b2b07412515117571cb3",
     "tests/test_intelligence.py": "2095846858bfd399a776f47e2f8969823f4139e72122e04e6f1b0f4e22e8b778",
-    "tests/test_operational.py": "e8aa9e48af3b7fc3eb7ea5c5b1e410addeaebdbd94044ff690d66e1ee598104e"
+    "tests/test_operational.py": "54390b592cfb596a8750ae574cd87e87e3a8634c2326c450e2bd92501c3ca208"
   },
+  "hotfix": "Installer copies all release manifest paths, including dotfiles and GitHub workflow.",
   "initiative": "Beacon Computing Initiative",
   "limits": [
     "Automated botnet attribution is not supported based solely on beacon counts",
@@ -43,5 +49,5 @@
   ],
   "project_seal": "BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX",
   "release": "4.6.11-TRACE",
-  "verification": "58 local regression tests passed; source syntax and release integrity validated. No live Kali hardware tests on this release."
+  "verification": "60 local regression tests previously passed; project image and README updated; live Kali capture of v4.6.11 remains unverified."
 }

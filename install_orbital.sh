@@ -11,7 +11,8 @@ set -euo pipefail
 SOURCE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 DEST="${BCI_ORBITAL_HOME:-$HOME/BCI/Docker Projects/orbital}"
 FILES=(install_orbital.sh release_manifest.json Dockerfile compose.yaml sentinel_exporter.py sentinel_gui.py \
-    bci_monitor_select.py flow_intel.py orbitalctl.sh start_sentinel_gui.sh bci-sentinel-gui.service)
+    bci_monitor_select.py flow_intel.py orbitalctl.sh start_sentinel_gui.sh bci-sentinel-gui.service \
+    .github/workflows/ci.yml .gitignore CONTRIBUTING.md assets/cerberus-bci.jpg)
 
 if [[ "${1:-}" == "--install-deps" ]]; then
     printf '[BCI] Installing required Kali/Ubuntu packages on explicit request.\n'
@@ -45,11 +46,12 @@ if [[ "$SOURCE" != "$DEST" ]]; then
     for file in "${FILES[@]}"; do
         if [[ -e "$DEST/$file" ]]; then
             mkdir -p "$backup"
+            mkdir -p "$backup/$(dirname -- "$file")"
             cp -p -- "$DEST/$file" "$backup/$file"
         fi
     done
     for file in "${FILES[@]}"; do
-        install -m 0644 -- "$SOURCE/$file" "$DEST/$file"
+        install -D -m 0644 -- "$SOURCE/$file" "$DEST/$file"
     done
     chmod 0755 "$DEST/orbitalctl.sh" "$DEST/start_sentinel_gui.sh" "$DEST/sentinel_exporter.py" "$DEST/sentinel_gui.py" "$DEST/bci_monitor_select.py" "$DEST/flow_intel.py"
     cp -- "$SOURCE/SHA256SUMS" "$DEST/SHA256SUMS"

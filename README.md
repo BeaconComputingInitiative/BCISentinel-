@@ -1,4 +1,109 @@
-# Beacon Computing Initiative — Orbital Sentinel v4.6.11-TRACE
+# BCI Orbital Sentinel
+
+**Beacon Computing Initiative · Defensive wireless observation and network threat-intelligence analysis**  
+**Release:** v4.6.11-TRACE · **Developer seal:** `CJB-DEV-2026` · **Platform:** Kali Linux / Debian-compatible Linux · **Python, Docker, Scapy, PyQt6, Prometheus**
+
+![Cerberus guarding the BCI gates — Orbital Sentinel project emblem](assets/cerberus-bci.jpg)
+
+> **Observe accurately. Preserve faithfully. Analyze transparently. Communicate securely. Act deliberately.**
+
+## What is Orbital Sentinel?
+
+**Orbital Sentinel is a locally operated, defensive 802.11 observation and traffic-intelligence workstation developed by the Beacon Computing Initiative (BCI).** Its purpose is to turn wireless management traffic and independently obtained network telemetry into structured, reviewable evidence about nearby access points, client activity, changes in radio behavior, and patterns that may warrant security investigation.
+
+A dedicated Wi-Fi adapter, already configured in **monitor mode**, listens for 802.11 frames without associating with the observed networks. Two isolated capture roles—**Sentinel** and **Discovery**—run in Docker and expose metrics over local-only HTTP endpoints. The **PyQt6 control center** presents the observed AP inventory, stations, wireless indicators, imported edge-flow findings, raw Prometheus metrics, and operational logs. Capture-state snapshots and machine-readable JSONL records support offline comparison, incident review, and future supervised ML pipelines; the software does not invent ground-truth malware labels.
+
+The project is **not a Wi-Fi intrusion tool or proof-of-compromise engine**. It does not need a password or network association to observe public management frames. It cannot decode third-party encrypted application traffic merely by monitoring beacons. C2-related indicators require corroborating information such as authorized DNS, router, firewall, or Zeek/NetFlow records.
+
+### Who is it for?
+
+Orbital Sentinel is intended for defensive researchers, wireless administrators, blue teams, and purple teams who operate on their own equipment or with authorization. It is useful for establishing a local wireless baseline, noticing management-frame irregularities, studying AP advertising behavior, and correlating authorized edge traffic with known security indicators.
+
+## How the system works
+
+```text
+Dedicated monitor-mode Wi-Fi interface (e.g., wlan1)
+                      |
+                802.11 frames
+                      |
+       +--------------+--------------+
+       |                             |
+  Sentinel service              Discovery service
+  Docker + Scapy                 Docker + Scapy
+       |                             |
+       +--- AP / station / beacon observations
+       |    association-evidence / wireless indicators
+       |
+       +--- /data state JSON and JSONL feature windows
+       |                             |
+       +--- localhost:9100          +--- localhost:9101
+                      |
+         PyQt6 Orbital Control Center
+         APs | Stations | Indicators | Flow Intel
+         Metrics | Terminal | C2 Hunt | Auto-Trace
+                      ^
+                      |
+        Authorized firewall / Zeek / DNS logs
+                  (offline import)
+```
+
+### Wireless observation: what the radio can actually see
+
+| Evidence | Implementation and significance | Important limitation |
+| --- | --- | --- |
+| **AP beacons** | Per-BSSID observation counts, SSID, advertised channel, timing, RSSI, intervals, RSN/security advertisement, and information-element changes | Beacons advertise network configuration; they are not malware callbacks |
+| **Vendor** | Manufacturer label inferred from locally installed OUI data | Locally administered/randomized MAC addresses may not identify a vendor |
+| **Stations and AP relationships** | Records observed BSSID/SSID relationships and differentiates association-response evidence, traffic evidence, and unconfirmed links | An observed MAC address is not proof of user/device identity or authenticated membership |
+| **Wireless indicators** | Deauthentication/disassociation bursts, EAPOL observations, beacon TSF discontinuities, and profile changes | Indicators can result from normal operations, interference, or configuration changes |
+| **Passive AP Auto-Trace** | Selects an observed AP and summarizes its advertised profile, beacon evidence, and station relationships | Does not locate the physical AP or access its encrypted content |
+
+### Network threat intelligence: a *separate* evidence stream
+
+When **authorized flow and DNS logs** are supplied, an offline analyzer can look for patterns consistent with regular outbound check-ins, unusual DNS failures / algorithmically generated domains, destination/port anomalies, elevated ICMP or TCP SYN activity, outbound scanning, SMTP fan-out, and locally supplied IoC matches. These are **investigation leads, not botnet verdicts**; periodic connections and unusual DNS behavior can have benign causes. The analyzer never treats an AP's ordinary Wi-Fi beacon periodicity as C2 traffic.
+
+**C2 Hunt** (`/hunt_c2`) is a bounded, read-only review of available wireless indicators and separately imported flow intelligence. It does **not** launch a channel sweep, transmit frames, or connect to a network. **Auto-Trace** (`/trace`) provides a passive AP-centered report. A small directed-probe facility exists separately for expressly authorized testing and is **disabled by default**; never enable it against networks you do not administer or have permission to test.
+
+## Control center and operation
+
+The Qt GUI contains **APs & Telemetry**, **Tracked Stations**, **Wireless Indicators**, **Edge Flow Intelligence**, **Raw Prometheus Metrics**, and **Terminal Stream** tabs. Operator controls include **Hunt C2 Signatures**, **Auto-Trace AP**, **Freeze Feed**, and a local WPA capture-file decryption dialog (requiring keys and authorization).
+
+Two Docker services expose local-only HTTP telemetry on ports **9100** and **9101**. Their packet counters may overlap because both observe the same radio; do not sum them to estimate unique traffic. A successful Docker start is only a *process-liveness* result: confirm increasing frame counters and populated state files to verify actual radio reception. The capture radio is selected from interfaces already in monitor mode; managed `wlan0` is not repurposed by the installer.
+
+Typical control commands after installation:
+
+```bash
+ORBITAL="$HOME/BCI/Docker Projects/orbital/orbitalctl.sh"
+bash "$ORBITAL" doctor
+bash "$ORBITAL" verify
+bash "$ORBITAL" test
+bash "$ORBITAL" start
+bash "$ORBITAL" status
+bash "$ORBITAL" metrics
+bash "$ORBITAL" gui
+# In a second terminal:
+bash "$ORBITAL" hunt-c2
+bash "$ORBITAL" trace
+```
+
+**Run the installer as your normal Kali desktop user, not through `sudo`.** It writes under `$HOME/BCI/Docker Projects/orbital`, backs up overwritten project files, preserves existing `captures/`, and uses Docker privilege escalation only when needed. It checks the full source `SHA256SUMS` manifest before installation; the 2026-10-29 integrity hotfix explicitly installs nested workflow files and dotfiles so the installed manifest also verifies.
+
+## Evidence, privacy, and operational assurance
+
+- **Local first:** captures, state files, indicators, and JSONL features remain on the workstation unless the operator explicitly moves them. There is no automated cloud synchronization.
+- **Evidence fidelity:** SSID/BSSID and station MACs appear in the local operator-facing view; ML-oriented records use per-session pseudonyms. Review logs and captures before publication because they may reveal nearby devices and networks.
+- **Integrity:** Release source files are SHA-256 hashed. Outputs may also receive per-role checksums on orderly shutdown. A hash establishes *byte integrity*, not that observations are true or malicious.
+- **Authorization boundary:** Passive radio observation and optional active probing must comply with applicable rules and permissions. Deauthentication and forced-disconnection functions are not part of the Auto-Trace workflow.
+- **Validation status:** Unit and synthetic integration tests cover processing and APIs. The user's earlier v4.6.7 deployment received actual monitor-mode traffic on channel 1; the newer v4.6.11 live hardware/GUI behavior still requires its own validation.
+
+## Why Cerberus?
+
+The project's emblem is **Cerberus**, the three-headed guardian of the underworld's gates in Greek mythology, reinterpreted as BCI's perimeter sentinel. The **three heads** symbolize concurrent observation, correlation, and deliberate response. The **gates** represent the boundary between trusted assets and untrusted network activity. **BCI** is forged into the gate itself to mark the protector and the protected domain. The **black/obsidian armor**, **maroon-red light**, and **electric cyan eyes** carry the Beacon Computing Initiative's visual identity. The artwork communicates the product's mission: **watch the boundary, preserve the evidence, and investigate before acting**. It is a project illustration, not an assertion that the program blocks or controls network ingress/egress.
+
+---
+
+## Technical reference, install procedure, and release notes
+
+The following sections document implementation details, supported inputs, and commands.
 
 Developer Seal: **CJB-DEV-2026**. Project seal: BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX.
 
@@ -124,3 +229,12 @@ passive mode regardless of this setting.
 This is an operational integration; real wireless probe transmission and GUI
 rendering require verification on the Kali adapter. No botnet attribution is
 inferred from Wi-Fi beacon periodicity or station packet counts.
+
+## Installation integrity hotfix (2026-10-29)
+
+The installer now copies `.github/workflows/ci.yml`, `.gitignore`, and
+`CONTRIBUTING.md` into the installed project because these files are included
+in `SHA256SUMS`. Previously their absence prevented `orbitalctl.sh start`
+from passing the release integrity gate. A clean-install regression test
+now verifies every manifest entry after installation. Existing capture files
+are preserved.
