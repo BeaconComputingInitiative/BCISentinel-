@@ -1,0 +1,15 @@
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL GUI
+# Developer Seal: CJB-DEV-2026
+# SHA-256: see SHA256SUMS
+[Unit]
+Description=BCI Orbital Sentinel PyQt6 GUI
+After=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=2
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/bci-orbital-gui
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=graphical-session.target

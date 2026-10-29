@@ -1,0 +1,16 @@
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL
+# Developer Seal: CJB-DEV-2026
+# Integrity: see SHA256SUMS
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+captures/
+backups/
+*.pcap
+*.pcapng
+*.sqlite3
+*.db
+*.log
+.DS_Store

@@ -1,0 +1,50 @@
+# ============================================================================
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL COMPOSE v4.6.11-TRACE
+# Developer Seal: CJB-DEV-2026
+# SHA-256: see SHA256SUMS
+# ============================================================================
+name: bci-orbital-sentinel-467
+x-bci-base: &bci-base
+  image: bci/orbital-sentinel:4.6.11-TRACE
+  build:
+    context: .
+    dockerfile: Dockerfile
+  network_mode: host
+  cap_drop: [ALL]
+  cap_add: [NET_RAW]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=64m
+  pids_limit: 80
+  stop_grace_period: 30s
+  restart: "no"
+  volumes:
+    - type: bind
+      source: ./sentinel_exporter.py
+      target: /opt/bci/sentinel_exporter.py
+      read_only: true
+    - type: bind
+      source: ./captures
+      target: /data
+  # Explicitly override the ENTRYPOINT baked into cached v4.6.2 images.
+  # Without this, the old observer receives "python3" as a subcommand and exits (2).
+  entrypoint: ["python3", "-u", "/opt/bci/sentinel_exporter.py"]
+  command: []
+services:
+  sentinel:
+    <<: *bci-base
+    environment:
+      BCI_IFACE: ${BCI_IFACE:-not-configured}
+      BCI_ROLE: sentinel
+      PROMETHEUS_PORT: "9100"
+      BCI_ML_INTERVAL: "10"
+      BCI_ACTIVE_PROBE_ENABLED: ${BCI_ACTIVE_PROBE_ENABLED:-0}
+  discovery:
+    <<: *bci-base
+    environment:
+      BCI_IFACE: ${BCI_IFACE:-not-configured}
+      BCI_ROLE: discovery
+      PROMETHEUS_PORT: "9101"
+      BCI_ML_INTERVAL: "10"
+      BCI_ACTIVE_PROBE_ENABLED: ${BCI_ACTIVE_PROBE_ENABLED:-0}

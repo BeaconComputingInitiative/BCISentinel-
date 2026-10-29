@@ -1,0 +1,22 @@
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL CI
+# Developer Seal: CJB-DEV-2026
+name: Orbital Sentinel tests
+on:
+  push:
+  pull_request:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify release integrity
+        run: sha256sum -c SHA256SUMS
+      - name: Python and shell syntax
+        run: |
+          python -m py_compile sentinel_exporter.py sentinel_gui.py flow_intel.py bci_monitor_select.py
+          bash -n install_orbital.sh orbitalctl.sh start_sentinel_gui.sh
+      - name: Run offline regression tests
+        run: python -m unittest discover -s tests -v
