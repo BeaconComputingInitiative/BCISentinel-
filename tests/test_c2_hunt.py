@@ -62,7 +62,7 @@ class Hunt(unittest.TestCase):
     def test_api_route_and_gui_preserved(self):
         s=(ROOT/'sentinel_exporter.py').read_text()
         g=(ROOT/'sentinel_gui.py').read_text()
-        self.assertIn("self.path == '/hunt_c2'",s)
+        self.assertIn("parsed.path != '/hunt_c2'",s)
         self.assertIn('bci_orbital_c2_hunts_total',s)
         for value in ('Hunt C2 Signatures','C2HuntWorker','Freeze Feed','Decrypt WPA Capture',
                       'Wireless Indicators','Edge Flow Intelligence','Raw Prometheus Metrics',

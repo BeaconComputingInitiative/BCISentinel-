@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL EXPORTER v4.6.11-TRACE
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL EXPORTER v4.6.13-NETSCOPE
 # Developer Seal: CJB-DEV-2026
 # Project Seal: BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX
 # SHA-256: see SHA256SUMS, generated for every release file
@@ -26,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = '4.6.11-TRACE'
+VERSION = '4.6.13-NETSCOPE'
 SEAL = 'CJB-DEV-2026'
 IFACE = os.environ.get('BCI_IFACE', '').strip()
 ROLE = os.environ.get('BCI_ROLE', 'sentinel').strip()
@@ -36,7 +36,12 @@ STATE_FILE = DATA_DIR / ('bci_state.json' if ROLE == 'sentinel' else 'bci_discov
 metrics = {'frames_total': 0, 'aps_active': 0, 'stations_active': 0, 'rx_errors': 0,
            'beacons_total': 0, 'probe_responses_total': 0, 'deauth_frames_total': 0,
            'eapol_frames_total': 0, 'wireless_indicators_total': 0,
-           'c2_hunts_executed': 0, 'traces_executed': 0, 'trace_probes_sent': 0}
+           'c2_hunts_executed': 0, 'traces_executed': 0, 'trace_probes_sent': 0,
+           'management_frames_total': 0, 'data_frames_total': 0,
+           'control_frames_total': 0, 'other_frames_total': 0,
+           'other_management_frames_total': 0, 'dns_packets_observed_total': 0,
+           'dns_queries_observed_total': 0, 'dns_responses_observed_total': 0,
+           'dns_nxdomain_observed_total': 0}
 active_aps: dict[str, dict] = {}
 active_stations: dict[str, dict] = {}
 lock = threading.RLock()
@@ -77,28 +82,39 @@ def _locally_administered(mac: str | None) -> bool:
 
 
 def load_oui_lookup() -> dict[str, str]:
-    """Support IEEE (hex) records and Wireshark manuf prefix records."""
+    """Parse IEEE '(hex)' records and Wireshark tab-delimited manuf records.
+
+    IEEE '(base 16)' rows are postal/contact continuations, not additional
+    prefixes; interpreting them as vendors caused the bogus '16)' labels.
+    """
     result: dict[str, str] = {}
-    paths = [os.getenv('BCI_OUI_FILE', ''), str(DATA_DIR / 'vendor_oui.txt'), '/usr/share/ieee-data/oui.txt',
-             '/usr/share/wireshark/manuf', '/usr/share/wireshark/wiresharkOUI.txt',
-             '/var/lib/ieee-data/oui.txt', 'oui.txt']
+    paths = [os.getenv('BCI_OUI_FILE', ''), str(DATA_DIR / 'vendor_oui.txt'),
+             '/usr/share/ieee-data/oui.txt', '/usr/share/wireshark/manuf',
+             '/usr/share/wireshark/wiresharkOUI.txt', '/var/lib/ieee-data/oui.txt',
+             'oui.txt']
     for path in paths:
         if not path or not os.path.isfile(path):
             continue
         try:
             with open(path, encoding='utf-8', errors='replace') as stream:
-                for line in stream:
+                for raw_line in stream:
+                    line = raw_line.strip()
+                    if not line or line.startswith('#') or '(base 16)' in line.lower():
+                        continue
                     if '(hex)' in line:
                         prefix, vendor = line.split('(hex)', 1)
                         key = re.sub(r'[^A-F0-9]', '', prefix.upper())[:6]
+                        vendor = vendor.strip()
                     else:
+                        # Wireshark manuf uses prefix, short label, optional long label.
                         fields = line.split(None, 2)
-                        if len(fields) < 2 or fields[0].startswith('#'):
+                        if len(fields) < 2:
                             continue
-                        key = re.sub(r'[^A-F0-9]', '', fields[0].split('/')[0].upper())[:6]
-                        vendor = fields[2] if len(fields) > 2 else fields[1]
-                    if len(key) == 6:
-                        result[key] = vendor.strip()
+                        prefix = fields[0].split('/')[0]
+                        key = re.sub(r'[^A-F0-9]', '', prefix.upper())[:6]
+                        vendor = fields[2].strip() if len(fields) > 2 else fields[1].strip()
+                    if len(key) == 6 and vendor and vendor.lower() not in ('16)', '(base 16)'):
+                        result[key] = vendor
             if result:
                 print(f'[BCI] Loaded {len(result)} vendor prefixes from {path}', flush=True)
                 break
@@ -110,6 +126,9 @@ def load_oui_lookup() -> dict[str, str]:
 
 
 OUI_DB = load_oui_lookup()
+# DNS metadata is scoped to decipherable plaintext UDP/TCP port 53 frames.
+# Raw query names, client IPs and payloads are intentionally not persisted.
+dns_per_ap: dict[str, dict[str, int]] = {}
 
 
 def get_vendor(mac: str) -> str:
@@ -246,12 +265,50 @@ def _mark_station_locked(mac: str, ap: str | None, evidence: str) -> None:
     metrics['stations_active'] = len(active_stations)
 
 
+def _observe_plaintext_dns(pkt: Any, frame: Any, ap_bssid: str) -> None:
+    """Count *decoded* plaintext DNS only; never infer DNS from encrypted 802.11.
+
+    No DNS names, payloads, client IPs or responses are written to disk. A
+    plaintext layer decoded by Scapy is necessary but not sufficient: this
+    path additionally requires unprotected Dot11 data and UDP/TCP port 53.
+    """
+    try:
+        if int(getattr(frame, 'FCfield', 0)) & 0x40:  # Dot11 protected flag
+            return
+        from scapy.layers.dns import DNS
+        from scapy.layers.inet import UDP, TCP
+        if not pkt.haslayer(DNS):
+            return
+        if not any(pkt.haslayer(layer) and (
+                int(pkt[layer].sport) == 53 or int(pkt[layer].dport) == 53)
+                for layer in (UDP, TCP)):
+            return
+        dns = pkt[DNS]
+        response = int(getattr(dns, 'qr', 0)) == 1
+        nxdomain = response and int(getattr(dns, 'rcode', 0)) == 3
+    except (ImportError, AttributeError, ValueError, TypeError, KeyError):
+        return
+    with lock:
+        metrics['dns_packets_observed_total'] += 1
+        metrics['dns_responses_observed_total' if response else 'dns_queries_observed_total'] += 1
+        if nxdomain:
+            metrics['dns_nxdomain_observed_total'] += 1
+        if _is_unicast(ap_bssid):
+            totals = dns_per_ap.setdefault(ap_bssid,
+                {'queries': 0, 'responses': 0, 'nxdomain': 0})
+            totals['responses' if response else 'queries'] += 1
+            if nxdomain:
+                totals['nxdomain'] += 1
+
+
 def packet_handler(pkt: Any) -> None:
     with lock:
         metrics['frames_total'] += 1
     try:
         from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeResp, Dot11Elt, Dot11ProbeReq
         if not pkt.haslayer(Dot11):
+            with lock:
+                metrics['other_frames_total'] += 1
             return
         frame = pkt[Dot11]
         transmitter = _normalize_mac(getattr(frame, 'addr2', None))
@@ -259,6 +316,17 @@ def packet_handler(pkt: Any) -> None:
         receiver = _normalize_mac(getattr(frame, 'addr1', None))
         ftype = int(getattr(frame, 'type', -1))
         subtype = int(getattr(frame, 'subtype', -1))
+        with lock:
+            if ftype == 0:
+                metrics['management_frames_total'] += 1
+                if not (pkt.haslayer(Dot11Beacon) or pkt.haslayer(Dot11ProbeResp)):
+                    metrics['other_management_frames_total'] += 1
+            elif ftype == 1:
+                metrics['control_frames_total'] += 1
+            elif ftype == 2:
+                metrics['data_frames_total'] += 1
+            else:
+                metrics['other_frames_total'] += 1
         timestamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         now = time.monotonic()
 
@@ -367,6 +435,9 @@ def packet_handler(pkt: Any) -> None:
 
         if ftype == 2:
             fc = int(getattr(frame, 'FCfield', 0)) & 3
+            # addr1 is the AP on ToDS frames; addr2 on FromDS frames.
+            observed_ap = receiver if fc == 1 else transmitter if fc == 2 else bssid
+            _observe_plaintext_dns(pkt, frame, observed_ap)
             with lock:
                 if fc == 1:     # to-DS: station -> AP
                     _mark_station_locked(transmitter, receiver, 'traffic_observed')
@@ -411,6 +482,9 @@ def snapshot() -> dict[str, Any]:
             'aps': [{k:v for k,v in ap.items() if not k.startswith('_')} for ap in active_aps.values()],
             'stations': [dict(st) for st in active_stations.values()],
             'indicators': list(indicators),
+            'dns_observation': {'source': 'passive_decoded_plaintext_port53_only',
+                                'per_ap': {k: dict(v) for k,v in dns_per_ap.items()},
+                                'limitations': 'WPA2/WPA3 and DoH/DoT payloads not visible without authorized endpoint/edge telemetry'},
             'visibility': 'passive_80211_metadata_only; encrypted C2 cannot be inspected',
         }
 
@@ -534,7 +608,7 @@ def background_sniffer() -> None:
             stop_event.wait(2)
 
 
-def execute_c2_hunt() -> tuple[bool, dict[str, Any] | str]:
+def execute_c2_hunt(target_bssid: str | None = None) -> tuple[bool, dict[str, Any] | str]:
     """On-demand **passive** security-indicator review, not RF C2 attribution.
 
     Wi-Fi beacons are AP advertisements, not malware check-ins. This method
@@ -545,14 +619,29 @@ def execute_c2_hunt() -> tuple[bool, dict[str, Any] | str]:
     """
     utc = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
     with lock:
+        if target_bssid:
+            if not isinstance(target_bssid, str) or not _is_unicast(_normalize_mac(target_bssid)):
+                return False, 'Invalid target BSSID.'
+            selected = _normalize_mac(target_bssid)
+            if selected not in active_aps:
+                return False, 'Requested BSSID is not present in observed AP inventory.'
+            matching_aps = {selected: active_aps[selected]}
+            related = [st for st in active_stations.values() if
+                       st.get('ap') == selected and
+                       st.get('association_evidence') != 'unconfirmed']
+            wireless = [item for item in indicators if item.get('bssid') == selected][-50:]
+        else:
+            selected = None
+            matching_aps = active_aps
+            related = active_stations.values()
+            wireless = list(indicators[-50:])
         ap_index = {bssid: {k: ap.get(k) for k in ('ssid', 'channel', 'vendor')}
-                    for bssid, ap in active_aps.items()}
-        station_count = len(active_stations)
+                    for bssid, ap in matching_aps.items()}
+        station_count = len(related)
         observed_channels = sorted({str(ap['channel']) for ap in ap_index.values()
                                     if ap.get('channel') not in ('unknown', None)},
                                    key=lambda val: (not val.isdigit(), int(val) if val.isdigit() else val))
-        wireless = list(indicators[-50:])
-        beacon_count = int(metrics['beacons_total'])
+        beacon_count = int(active_aps[selected].get('beacons',0)) if selected else int(metrics['beacons_total'])
     # Use only operator-provided edge telemetry from the independent local
     # analyzer. Never imply it was derived from encrypted Wi-Fi beacons.
     flow_path = DATA_DIR / 'flow_intel' / 'flow_summary.json'
@@ -580,13 +669,15 @@ def execute_c2_hunt() -> tuple[bool, dict[str, Any] | str]:
             'classification': 'wireless_anomaly_not_c2_evidence',
         })
     flow_count = 0
-    if edge_summary is not None:
+    if edge_summary is not None and selected is None:
         try:
             flow_count = max(0, int(edge_summary.get('events', 0)))
         except (ValueError, TypeError):
             flow_count = 0
     report = {
         'generated_at_utc': utc,
+        'scope_bssid': selected,
+        'scope': 'single_observed_ap' if selected else 'all_observed_networks',
         'mode': 'passive_snapshot_no_transmissions',
         'sweep_channels': [],  # Nothing was transmitted or retuned.
         'observed_channels': observed_channels,
@@ -596,12 +687,12 @@ def execute_c2_hunt() -> tuple[bool, dict[str, Any] | str]:
         'suspicious_nodes_found': 0,  # No host attribution from RF metadata.
         'wireless_indicators_found': len(wireless),
         'flow_indicators_found': flow_count,
-        'flow_evidence_available': edge_summary is not None,
-        'flow_indicator_types': (edge_summary or {}).get('event_types', {}),
+        'flow_evidence_available': edge_summary is not None and selected is None,
+        'flow_evidence_unattributed': edge_summary is not None and selected is not None,
+        'flow_indicator_types': (edge_summary or {}).get('event_types', {}) if selected is None else {},
         'anomalies': anomalies,
-        'finding': ('Wireless events require review. '
-                    'C2-like flow evidence is from separately imported edge logs, '
-                    'not Wi-Fi beacons.'),
+        'finding': ('Wireless events require review. Imported edge-flow DNS/IP records are '
+                    'not mapped to a selected BSSID without independent association evidence.'),
         'ground_truth_botnet_labels': False,
     }
     # Automatic pseudonymized ML export: never write raw BSSID or station
@@ -612,6 +703,7 @@ def execute_c2_hunt() -> tuple[bool, dict[str, Any] | str]:
         'developer_seal': SEAL,
         'timestamp_utc': utc,
         'mode': report['mode'],
+        'scope_ap_id': _pseudonym(selected) if selected else None,
         'features': {key: report[key] for key in (
             'total_stations_analyzed', 'aps_observed', 'beacons_observed',
             'wireless_indicators_found', 'flow_indicators_found',
@@ -809,8 +901,14 @@ class MetricsHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
-        if self.path == '/hunt_c2':
-            success, result = execute_c2_hunt()
+        if self.path.startswith('/hunt_c2'):
+            from urllib.parse import urlsplit, parse_qs
+            parsed = urlsplit(self.path)
+            if parsed.path != '/hunt_c2':
+                self.send_error(404)
+                return
+            scope_bssid = parse_qs(parsed.query).get('bssid', [None])[0]
+            success, result = execute_c2_hunt(scope_bssid)
             response = {'success': success}
             response['report' if success else 'error'] = result
             data = json.dumps(response, ensure_ascii=False).encode('utf-8')
@@ -842,6 +940,25 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 '# HELP bci_orbital_rx_errors_total Capture and parsing errors\n'
                 '# TYPE bci_orbital_rx_errors_total counter\n'
                 f"bci_orbital_rx_errors_total {values['rx_errors']}\n"
+                '# HELP bci_orbital_management_frames_total Captured 802.11 management frames\n'
+                '# TYPE bci_orbital_management_frames_total counter\n'
+                f"bci_orbital_management_frames_total {values['management_frames_total']}\n"
+                '# TYPE bci_orbital_data_frames_total counter\n'
+                f"bci_orbital_data_frames_total {values['data_frames_total']}\n"
+                '# TYPE bci_orbital_control_frames_total counter\n'
+                f"bci_orbital_control_frames_total {values['control_frames_total']}\n"
+                '# TYPE bci_orbital_other_frames_total counter\n'
+                f"bci_orbital_other_frames_total {values['other_frames_total']}\n"
+                '# TYPE bci_orbital_other_management_frames_total counter\n'
+                f"bci_orbital_other_management_frames_total {values['other_management_frames_total']}\n"
+                '# TYPE bci_orbital_dns_packets_observed_total counter\n'
+                f"bci_orbital_dns_packets_observed_total {values['dns_packets_observed_total']}\n"
+                '# TYPE bci_orbital_dns_queries_observed_total counter\n'
+                f"bci_orbital_dns_queries_observed_total {values['dns_queries_observed_total']}\n"
+                '# TYPE bci_orbital_dns_responses_observed_total counter\n'
+                f"bci_orbital_dns_responses_observed_total {values['dns_responses_observed_total']}\n"
+                '# TYPE bci_orbital_dns_nxdomain_observed_total counter\n'
+                f"bci_orbital_dns_nxdomain_observed_total {values['dns_nxdomain_observed_total']}\n"
                 '# TYPE bci_orbital_beacons_total counter\n'
                 f"bci_orbital_beacons_total {values['beacons_total']}\n"
                 '# TYPE bci_orbital_probe_responses_total counter\n'

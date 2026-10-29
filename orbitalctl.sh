@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL CONTROL v4.6.11-TRACE
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL CONTROL v4.6.13-NETSCOPE
 # Developer Seal: CJB-DEV-2026
 # Project Seal: BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX
 # SHA-256: see SHA256SUMS
@@ -56,21 +56,22 @@ verify_storage() {
 }
 
 prepare_image() {
-    local target='bci/orbital-sentinel:4.6.11-TRACE'
+    local target='bci/orbital-sentinel:4.6.13-NETSCOPE'
     if "${DOCKER[@]}" image inspect "$target" >/dev/null 2>&1; then
-        say 'Using cached v4.6.11-TRACE image (no registry download)'; return 0
+        say 'Using cached v4.6.13-NETSCOPE image (no registry download)'; return 0
     fi
     # Reuse cached runtime if and only if the source image is present.
     # Compose overrides any inherited ENTRYPOINT with the repaired exporter.
     local existing
     for existing in \
+      'bci/orbital-sentinel:4.6.12-FRAMEDNS' \
       'bci/orbital-sentinel:4.6.10-C2HUNT' \
       'bci/orbital-sentinel:4.6.8-op2' \
       'bci/orbital-sentinel:4.6.7-op2' \
       'bci/orbital-sentinel:4.6.7-op1' \
       'bci/orbital-sentinel:4.6.2-auto-ml-jsonl'; do
         if "${DOCKER[@]}" image inspect "$existing" >/dev/null 2>&1; then
-            say "Using cached runtime $existing with v4.6.11-TRACE source"
+            say "Using cached runtime $existing with v4.6.13-NETSCOPE source"
             "${DOCKER[@]}" tag "$existing" "$target" || return 1
             return 0
         fi
@@ -111,7 +112,7 @@ PY
 
 case "$COMMAND" in
     doctor)
-        say 'Orbital Sentinel v4.6.11-TRACE — diagnostic mode (read-only)'
+        say 'Orbital Sentinel v4.6.13-NETSCOPE — diagnostic mode (read-only)'
         get_iface || exit 1
         if setup_docker; then
             "${DOCKER[@]}" image ls 'bci/orbital-sentinel' || true
@@ -172,10 +173,13 @@ case "$COMMAND" in
         python3 "$HERE/flow_intel.py" "$@"
         ;;
     hunt-c2)
-        python3 - <<'PYHUNT'
-import json,urllib.request,sys
+        HUNT_BSSID="${1:-}" python3 - <<'PYHUNT'
+import json,urllib.request,urllib.parse,sys,os
 try:
-    with urllib.request.urlopen('http://127.0.0.1:9100/hunt_c2',timeout=8) as response:
+    url='http://127.0.0.1:9100/hunt_c2'
+    if os.getenv('HUNT_BSSID',''):
+        url+='?'+urllib.parse.urlencode({'bssid':os.environ['HUNT_BSSID']})
+    with urllib.request.urlopen(url,timeout=8) as response:
         result=json.load(response)
     print(json.dumps(result,indent=2,ensure_ascii=False))
     sys.exit(0 if result.get('success') else 1)
@@ -243,7 +247,7 @@ PY
   bci-orbital status        Show container state
   bci-orbital logs          Read container logs
   bci-orbital metrics       Read local Prometheus metrics
-  bci-orbital hunt-c2       Review wireless indicators and imported edge telemetry
+  bci-orbital hunt-c2 [BSSID]  Review global indicators or a specific AP (no flow attribution)
   bci-orbital trace [BSSID] Passive AP trace with station evidence, JSONL audit
   bci-orbital trace-probe BSSID --authorize  Optional bounded directed probes (explicit opt-in only)
   bci-orbital flow-analyze --flows F.jsonl --dns D.jsonl --ioc I.json --out-dir DIR

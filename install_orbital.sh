@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL INSTALLER v4.6.11-TRACE
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL INSTALLER v4.6.13-NETSCOPE
 # Developer Seal: CJB-DEV-2026
 # Project Seal: BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX
 # SHA-256: recorded in release SHA256SUMS
@@ -11,7 +11,7 @@ set -euo pipefail
 SOURCE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 DEST="${BCI_ORBITAL_HOME:-$HOME/BCI/Docker Projects/orbital}"
 FILES=(install_orbital.sh release_manifest.json Dockerfile compose.yaml sentinel_exporter.py sentinel_gui.py \
-    bci_monitor_select.py flow_intel.py orbitalctl.sh start_sentinel_gui.sh bci-sentinel-gui.service \
+    bci_monitor_select.py flow_intel.py network_scope.py orbitalctl.sh start_sentinel_gui.sh bci-sentinel-gui.service \
     .github/workflows/ci.yml .gitignore CONTRIBUTING.md assets/cerberus-bci.jpg)
 
 if [[ "${1:-}" == "--install-deps" ]]; then
@@ -29,7 +29,7 @@ printf '[BCI] Source: %s\n[BCI] Destination: %s\n' "$SOURCE" "$DEST"
     echo '[BCI][ERROR] Source failed SHA-256 verification; no files installed.' >&2
     exit 1
 }
-python3 -m py_compile "$SOURCE/sentinel_exporter.py" "$SOURCE/sentinel_gui.py" "$SOURCE/bci_monitor_select.py" "$SOURCE/flow_intel.py" || exit 1
+python3 -m py_compile "$SOURCE/sentinel_exporter.py" "$SOURCE/sentinel_gui.py" "$SOURCE/bci_monitor_select.py" "$SOURCE/flow_intel.py" "$SOURCE/network_scope.py" || exit 1
 
 if [[ -f "$DEST/orbitalctl.sh" ]]; then
     echo '[BCI] Existing project found. Stop existing capture with: bash "$HOME/BCI/Docker Projects/orbital/orbitalctl.sh" stop' >&2
@@ -53,7 +53,7 @@ if [[ "$SOURCE" != "$DEST" ]]; then
     for file in "${FILES[@]}"; do
         install -D -m 0644 -- "$SOURCE/$file" "$DEST/$file"
     done
-    chmod 0755 "$DEST/orbitalctl.sh" "$DEST/start_sentinel_gui.sh" "$DEST/sentinel_exporter.py" "$DEST/sentinel_gui.py" "$DEST/bci_monitor_select.py" "$DEST/flow_intel.py"
+    chmod 0755 "$DEST/orbitalctl.sh" "$DEST/start_sentinel_gui.sh" "$DEST/sentinel_exporter.py" "$DEST/sentinel_gui.py" "$DEST/bci_monitor_select.py" "$DEST/flow_intel.py" "$DEST/network_scope.py"
     cp -- "$SOURCE/SHA256SUMS" "$DEST/SHA256SUMS"
     cp -- "$SOURCE/README.md" "$DEST/README.md"
     mkdir -p "$DEST/tests"

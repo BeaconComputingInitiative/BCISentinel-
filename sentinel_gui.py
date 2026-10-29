@@ -12,12 +12,15 @@ if '/usr/lib/python3/dist-packages' not in sys.path:
     sys.path.insert(0, '/usr/lib/python3/dist-packages')
 
 import json
+from network_scope import (visible_aps, visible_stations, visible_indicators,
+                           visible_dns, scoped_ap_label)
+from datetime import datetime, timezone
 import subprocess
 import urllib.request
 import urllib.error
 from urllib.parse import urlencode
 
-__version__ = "4.6.11-TRACE"
+__version__ = "4.6.13-NETSCOPE"
 OPERATOR_NAME = "Chance Joaquin Boone"
 PROMETHEUS_METRICS_URL = "http://127.0.0.1:9100/metrics"
 C2_HUNT_API_URL = "http://127.0.0.1:9100/hunt_c2"
@@ -42,7 +45,7 @@ def main():
         from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                      QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
                                      QPushButton, QTabWidget, QHeaderView, QTextEdit,
-                                     QLineEdit, QMessageBox, QInputDialog, QFileDialog, QSizePolicy)
+                                     QLineEdit, QMessageBox, QInputDialog, QFileDialog, QSizePolicy, QComboBox)
         from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
     except ImportError as e:
         sys.exit(f"PyQt6 load error: {e}")
@@ -63,13 +66,18 @@ def main():
 
 
     class C2HuntWorker(QThread):
+        def __init__(self, bssid=None, parent=None):
+            super().__init__(parent)
+            self.bssid = bssid
+
         finished_report = pyqtSignal(dict)
         failed_report = pyqtSignal(str)
 
         def run(self):
             try:
+                url = C2_HUNT_API_URL + ('?' + urlencode({'bssid':self.bssid}) if self.bssid else '')
                 req = urllib.request.Request(
-                    C2_HUNT_API_URL, headers={'User-Agent': 'BCI-Sentinel-GUI'})
+                    url, headers={'User-Agent': 'BCI-Sentinel-GUI'})
                 with urllib.request.urlopen(req, timeout=8.0) as response:
                     result = json.loads(response.read(2_000_000).decode('utf-8'))
                 if result.get('success'):
@@ -106,6 +114,9 @@ def main():
             self.frozen = False
             self.c2_worker = None
             self.trace_worker = None
+            self.current_snapshot = None
+            self.last_state_version = None
+            self.last_state_timestamp = None
             self.setWindowTitle(f"Beacon Computing Initiative — Orbital Sentinel v{__version__} [Operator: {OPERATOR_NAME}]")
             self.resize(1400, 900)
 
@@ -140,6 +151,20 @@ def main():
             top_bar_layout.addWidget(decrypt_btn)
             main_layout.addLayout(top_bar_layout)
 
+            selection_bar = QHBoxLayout()
+            selection_bar.addWidget(QLabel('Network scope:'))
+            self.network_selector = QComboBox()
+            self.network_selector.setMinimumWidth(440)
+            self.network_selector.setMaximumWidth(750)
+            self.network_selector.addItem('All observed networks (global capture)', None)
+            self.network_selector.currentIndexChanged.connect(self.on_network_changed)
+            selection_bar.addWidget(self.network_selector)
+            self.scope_info = QLabel('Selected AP filters views and hunt reports, not radio capture.')
+            self.scope_info.setStyleSheet('color: #8e9cac;')
+            selection_bar.addWidget(self.scope_info)
+            selection_bar.addStretch()
+            main_layout.addLayout(selection_bar)
+
             self.tabs = QTabWidget()
             self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             main_layout.addWidget(self.tabs)
@@ -155,6 +180,10 @@ def main():
             self.tab_indicators = QWidget()
             self.init_indicators_tab()
             self.tabs.addTab(self.tab_indicators, "⚠ Wireless Indicators")
+
+            self.tab_dns = QWidget()
+            self.init_dns_tab()
+            self.tabs.addTab(self.tab_dns, "🌐 DNS Observation")
 
             self.tab_flow = QWidget()
             self.init_flow_tab()
@@ -176,21 +205,33 @@ def main():
             layout = QVBoxLayout(self.tab_dashboard)
             metrics_layout = QHBoxLayout()
             self.lbl_frames = QLabel("<b>Total Frames:</b> 0")
+            self.lbl_beacons = QLabel("<b>Beacons:</b> 0")
+            self.lbl_data = QLabel("<b>Data Frames:</b> 0")
+            self.lbl_control = QLabel("<b>Control Frames:</b> 0")
+            self.lbl_management = QLabel("<b>Management:</b> 0")
+            self.lbl_dns = QLabel("<b>Plaintext DNS:</b> 0")
             self.lbl_aps = QLabel("<b>Active APs:</b> 0")
             self.lbl_stations = QLabel("<b>Stations Tracked:</b> 0")
             self.lbl_rx_errors = QLabel("<b>RX Errors:</b> 0")
             self.lbl_hunts = QLabel("<b>C2 Hunts:</b> 0")
             self.lbl_traces = QLabel("<b>AP Traces:</b> 0")
-            for lbl in [self.lbl_frames, self.lbl_aps, self.lbl_stations, self.lbl_rx_errors, self.lbl_hunts, self.lbl_traces]:
+            for lbl in [self.lbl_frames, self.lbl_beacons, self.lbl_data,
+                        self.lbl_control, self.lbl_management, self.lbl_dns,
+                        self.lbl_aps, self.lbl_stations, self.lbl_rx_errors,
+                        self.lbl_hunts, self.lbl_traces]:
                 lbl.setStyleSheet("background-color: #14141f; border: 1px solid #1e1e2d; padding: 12px; color: #00f5ff; border-radius: 6px;")
                 metrics_layout.addWidget(lbl)
             layout.addLayout(metrics_layout)
 
-            layout.addWidget(QLabel("<b>Detected Access Points (BSSID / SSID / Channel / Vendor / Packets):</b>"))
+            layout.addWidget(QLabel("<b>Detected AP advertisements (Packets = Beacons + Probe Responses only; not all AP traffic):</b>"))
             self.ap_table = QTableWidget()
             self.ap_table.setColumnCount(9)
-            self.ap_table.setHorizontalHeaderLabels(["BSSID", "SSID", "Channel", "Vendor", "Packets", "Beacons", "Interval TU", "Security", "IE Changes"])
-            self.ap_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self.ap_table.setHorizontalHeaderLabels(["BSSID", "SSID", "Channel", "Vendor", "AP Mgmt Frames", "Beacons", "Interval TU", "Security", "IE Changes"])
+            self.ap_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            self.ap_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+            self.ap_table.cellDoubleClicked.connect(self.choose_ap_row)
+            for index, width in enumerate((170, 210, 90, 280, 145, 110, 130, 310, 120)):
+                self.ap_table.setColumnWidth(index, width)
             layout.addWidget(self.ap_table)
 
         def init_stations_tab(self):
@@ -199,7 +240,10 @@ def main():
             self.station_table = QTableWidget()
             self.station_table.setColumnCount(6)
             self.station_table.setHorizontalHeaderLabels(["Station MAC", "Vendor", "Observed AP BSSID", "AP SSID", "Evidence", "Packets"])
-            self.station_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self.station_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            self.station_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+            for index, width in enumerate((200, 360, 200, 200, 220, 110)):
+                self.station_table.setColumnWidth(index, width)
             layout.addWidget(self.station_table)
 
         def init_indicators_tab(self):
@@ -210,6 +254,20 @@ def main():
             self.indicators_table.setHorizontalHeaderLabels(["UTC", "Type", "BSSID", "Evidence"])
             self.indicators_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
             layout.addWidget(self.indicators_table)
+
+        def init_dns_tab(self):
+            layout = QVBoxLayout(self.tab_dns)
+            layout.addWidget(QLabel("DNS observation: plaintext, decoded UDP/TCP port 53 only. Encrypted Wi-Fi and DoH/DoT are not decoded."))
+            self.dns_summary = QLabel("Decoded DNS queries: 0 | Responses: 0 | NXDOMAIN: 0")
+            self.dns_summary.setStyleSheet("color: #00f5ff; padding: 8px; font-family: monospace;")
+            layout.addWidget(self.dns_summary)
+            self.dns_table = QTableWidget()
+            self.dns_table.setColumnCount(4)
+            self.dns_table.setHorizontalHeaderLabels(["Observed AP BSSID", "Queries", "Responses", "NXDOMAIN"])
+            self.dns_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            layout.addWidget(self.dns_table)
+            self.dns_import_label = QLabel("Imported DNS logs: none (use Edge Flow Intelligence)")
+            layout.addWidget(self.dns_import_label)
 
         def init_flow_tab(self):
             layout = QVBoxLayout(self.tab_flow)
@@ -247,50 +305,115 @@ def main():
                 self.status_lbl.setText("● SYSTEM ACTIVE")
                 self.status_lbl.setStyleSheet("color: #00f5ff; font-weight: bold; font-family: monospace;")
 
+        def selected_bssid(self):
+            return self.network_selector.currentData()
+
+        def on_network_changed(self, _index):
+            if self.current_snapshot is not None:
+                self.render_snapshot(self.current_snapshot)
+
+        def choose_ap_row(self, row, _column):
+            item = self.ap_table.item(row, 0)
+            if item is None:
+                return
+            key = item.text().upper()
+            for idx in range(self.network_selector.count()):
+                if self.network_selector.itemData(idx) == key:
+                    self.network_selector.setCurrentIndex(idx)
+                    break
+
+        def update_network_choices(self, aps):
+            old = self.selected_bssid()
+            self.network_selector.blockSignals(True)
+            self.network_selector.clear()
+            self.network_selector.addItem('All observed networks (global capture)', None)
+            for ap in sorted(aps,key=lambda x:(str(x.get('ssid','')).casefold(),str(x.get('bssid','')))):
+                bssid = str(ap.get('bssid','')).upper()
+                if bssid:
+                    self.network_selector.addItem(f"{ap.get('ssid', '<Hidden SSID>')} | {bssid} | Ch {ap.get('channel','?')}", bssid)
+            found = next((idx for idx in range(self.network_selector.count())
+                          if self.network_selector.itemData(idx) == old), 0)
+            self.network_selector.setCurrentIndex(found)
+            self.network_selector.blockSignals(False)
+
+        def render_snapshot(self, state):
+            metrics = state.get('metrics', {})
+            aps = state.get('aps', [])
+            stations = state.get('stations', [])
+            indicators = state.get('indicators', [])
+            selected = self.selected_bssid()
+            # The top counters remain explicitly global; values are never
+            # falsely presented as per-AP measurements.
+            self.scope_info.setText('Scope: ' + scoped_ap_label(aps, selected) +
+                ' | Frame totals global; edge logs not attributed to AP')
+            self.lbl_frames.setText(f"<b>Global frames:</b> {int(metrics.get('frames_total', 0))}")
+            self.lbl_beacons.setText(f"<b>Global beacons:</b> {int(metrics.get('beacons_total', 0))}")
+            self.lbl_data.setText(f"<b>Global data:</b> {int(metrics.get('data_frames_total', 0))}")
+            self.lbl_control.setText(f"<b>Global control:</b> {int(metrics.get('control_frames_total', 0))}")
+            self.lbl_management.setText(f"<b>Global mgmt:</b> {int(metrics.get('management_frames_total', 0))}")
+            self.lbl_dns.setText(f"<b>Global clear DNS:</b> {int(metrics.get('dns_packets_observed_total', 0))}")
+            scoped_dns = visible_dns(state.get('dns_observation',{}).get('per_ap',{}),selected)
+            if selected:
+                counts = scoped_dns.get(selected, {})
+                self.dns_summary.setText('Selected AP plaintext DNS | Queries: {} | Responses: {} | NXDOMAIN: {} (no clear DNS ≠ no DNS)'.format(
+                    counts.get('queries',0),counts.get('responses',0),counts.get('nxdomain',0)))
+            else:
+                self.dns_summary.setText('All captured decoded DNS | Queries: {} | Responses: {} | NXDOMAIN: {}'.format(
+                    metrics.get('dns_queries_observed_total',0), metrics.get('dns_responses_observed_total',0),
+                    metrics.get('dns_nxdomain_observed_total',0)))
+            self.dns_table.setRowCount(len(scoped_dns))
+            for row,(bssid,counts) in enumerate(sorted(scoped_dns.items())):
+                for col,value in enumerate((bssid,counts.get('queries',0),counts.get('responses',0),counts.get('nxdomain',0))):
+                    self.dns_table.setItem(row,col,QTableWidgetItem(str(value)))
+            self.lbl_aps.setText(f"<b>Global APs:</b> {int(metrics.get('aps_active',0))}")
+            self.lbl_stations.setText(f"<b>Global stations:</b> {int(metrics.get('stations_active',0))}")
+            self.lbl_rx_errors.setText(f"<b>Global RX errors:</b> {int(metrics.get('rx_errors',0))}")
+            self.lbl_hunts.setText(f"<b>C2 hunts:</b> {int(metrics.get('c2_hunts_executed',0))}")
+            self.lbl_traces.setText(f"<b>AP traces:</b> {int(metrics.get('traces_executed',0))}")
+            ap_rows=visible_aps(aps,selected)
+            self.ap_table.setRowCount(len(ap_rows))
+            for row, ap in enumerate(ap_rows):
+                vals = (ap.get('bssid',''),ap.get('ssid',''),ap.get('channel',''),ap.get('vendor',''),
+                    ap.get('packets',0),ap.get('beacons',0),ap.get('beacon_interval_tu',''),
+                    ap.get('security',''),ap.get('profile_changes',0))
+                for col,v in enumerate(vals): self.ap_table.setItem(row,col,QTableWidgetItem(str(v)))
+            station_rows=visible_stations(stations,selected)
+            self.station_table.setRowCount(len(station_rows))
+            for row, st in enumerate(station_rows):
+                vals=(st.get('mac',''),st.get('vendor',''),st.get('ap',''),st.get('ap_ssid','Unknown'),
+                      st.get('association_evidence','unconfirmed'),st.get('packets',0))
+                for col,v in enumerate(vals): self.station_table.setItem(row,col,QTableWidgetItem(str(v)))
+            indicator_rows=visible_indicators(indicators,selected)
+            self.indicators_table.setRowCount(len(indicator_rows))
+            for row, e in enumerate(indicator_rows):
+                for col, key in enumerate(('timestamp_utc','type','bssid','detail')):
+                    self.indicators_table.setItem(row,col,QTableWidgetItem(str(e.get(key,''))))
+            if selected:
+                self.flow_text.setPlainText('Selected AP: '+selected+'\n\nImported flow/DNS evidence is not mapped to a Wi-Fi BSSID.\n' +
+                    'Return to All observed networks for the independent edge-flow summary.')
+            else:
+                flow_path = os.path.join(os.path.dirname(STATE_FILE_PATH),'flow_intel','flow_summary.json')
+                if os.path.exists(flow_path):
+                    try:
+                        with open(flow_path,encoding='utf-8') as f:summary=json.load(f)
+                        self.flow_text.setPlainText(json.dumps(summary,indent=2))
+                        self.dns_import_label.setText(f"Imported DNS logs: {int(summary.get('dns_rows',0))} (separate source, no BSSID attribution)")
+                    except (OSError,ValueError) as exc:
+                        self.flow_text.setPlainText(f'Imported edge-flow summary unreadable: {type(exc).__name__}')
+                else:
+                    self.flow_text.setPlainText('No edge telemetry imported yet. Run orbitalctl.sh flow-analyze --help.')
+
         def poll_data(self):
             if self.frozen: return
             try:
                 if os.path.exists(STATE_FILE_PATH):
-                    with open(STATE_FILE_PATH, "r", encoding="utf-8") as f: state = json.load(f)
-                    metrics, aps, stations = state.get("metrics", {}), state.get("aps", []), state.get("stations", [])
-                    indicators = state.get("indicators", [])
-                    self.status_lbl.setText("● SYSTEM ACTIVE")
-                    self.lbl_frames.setText(f"<b>Total Frames:</b> {int(metrics.get('frames_total', 0))}")
-                    self.lbl_aps.setText(f"<b>Active APs:</b> {int(metrics.get('aps_active', 0))}")
-                    self.lbl_stations.setText(f"<b>Stations Tracked:</b> {int(metrics.get('stations_active', 0))}")
-                    self.lbl_rx_errors.setText(f"<b>RX Errors:</b> {int(metrics.get('rx_errors', 0))}")
-                    self.lbl_hunts.setText(f"<b>C2 Hunts:</b> {int(metrics.get('c2_hunts_executed', 0))}")
-                    self.lbl_traces.setText(f"<b>AP Traces:</b> {int(metrics.get('traces_executed', 0))}")
-
-                    self.ap_table.setRowCount(len(aps))
-                    for row, ap in enumerate(aps):
-                        self.ap_table.setItem(row, 0, QTableWidgetItem(ap.get("bssid", "")))
-                        self.ap_table.setItem(row, 1, QTableWidgetItem(ap.get("ssid", "")))
-                        self.ap_table.setItem(row, 2, QTableWidgetItem(str(ap.get("channel", ""))))
-                        self.ap_table.setItem(row, 3, QTableWidgetItem(ap.get("vendor", "")))
-                        self.ap_table.setItem(row, 4, QTableWidgetItem(str(ap.get("packets", 0))))
-                        self.ap_table.setItem(row, 5, QTableWidgetItem(str(ap.get("beacons", 0))))
-                        self.ap_table.setItem(row, 6, QTableWidgetItem(str(ap.get("beacon_interval_tu", ""))))
-                        self.ap_table.setItem(row, 7, QTableWidgetItem(str(ap.get("security", ""))))
-                        self.ap_table.setItem(row, 8, QTableWidgetItem(str(ap.get("profile_changes", 0))))
-
-                    self.station_table.setRowCount(len(stations))
-                    for row, st in enumerate(stations):
-                        self.station_table.setItem(row, 0, QTableWidgetItem(st.get("mac", "")))
-                        self.station_table.setItem(row, 1, QTableWidgetItem(st.get("vendor", "")))
-                        self.station_table.setItem(row, 2, QTableWidgetItem(st.get("ap", "")))
-                        self.station_table.setItem(row, 3, QTableWidgetItem(st.get("ap_ssid", "Unknown")))
-                        self.station_table.setItem(row, 4, QTableWidgetItem(st.get("association_evidence", "unconfirmed")))
-                        self.station_table.setItem(row, 5, QTableWidgetItem(str(st.get("packets", 0))))
-                    self.indicators_table.setRowCount(len(indicators))
-                    for row, e in enumerate(indicators):
-                        for col, key in enumerate(("timestamp_utc", "type", "bssid", "detail")):
-                            self.indicators_table.setItem(row, col, QTableWidgetItem(str(e.get(key, ""))))
-                    flow_path = os.path.join(os.path.dirname(STATE_FILE_PATH), 'flow_intel', 'flow_summary.json')
-                    if os.path.exists(flow_path):
-                        with open(flow_path, encoding='utf-8') as f:
-                            flow_summary = json.load(f)
-                        self.flow_text.setPlainText(json.dumps(flow_summary, indent=2))
+                    with open(STATE_FILE_PATH, 'r', encoding='utf-8') as f:
+                        state = json.load(f)
+                    self.current_snapshot=state
+                    self.last_state_version=state.get('version','unknown')
+                    self.last_state_timestamp=state.get('updated_at_utc')
+                    self.update_network_choices(state.get('aps',[]))
+                    self.render_snapshot(state)
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 self.status_lbl.setText(f"● STATE UNAVAILABLE: {type(exc).__name__}")
 
@@ -302,12 +425,25 @@ def main():
                     if line and not line.startswith("#"):
                         parts = line.split()
                         if len(parts) >= 2: raw_metrics[parts[0].split("{")[0]] = float(parts[1])
+                # API liveness alone does not establish freshness of the saved state.
+                try:
+                    last = datetime.fromisoformat(str(getattr(self, 'last_state_timestamp', '')).replace('Z', '+00:00'))
+                    fresh = abs((datetime.now(timezone.utc) - last).total_seconds()) <= 10
+                except (ValueError, TypeError):
+                    fresh = False
+                if not self.frozen:
+                    if fresh and getattr(self, 'last_state_version', '') == __version__:
+                        self.status_lbl.setText("● API LIVE · SNAPSHOT FRESH")
+                    else:
+                        self.status_lbl.setText("● API LIVE · SAVED STATE STALE/OLDER VERSION")
                 self.raw_table.setRowCount(len(raw_metrics))
                 for row, (m_name, val) in enumerate(sorted(raw_metrics.items())):
                     self.raw_table.setItem(row, 0, QTableWidgetItem(m_name))
                     self.raw_table.setItem(row, 1, QTableWidgetItem(str(val)))
                     self.raw_table.setItem(row, 2, QTableWidgetItem("ACTIVE"))
             except (OSError, ValueError, urllib.error.URLError) as exc:
+                if not self.frozen:
+                    self.status_lbl.setText("● API OFFLINE · SHOWING SAVED OBSERVATIONS")
                 if self.terminal_out.document().blockCount() < 100:
                     self.terminal_out.append(f"[BCI] Metrics polling: {type(exc).__name__}")
 
@@ -316,7 +452,7 @@ def main():
                 return
             self.c2_btn.setEnabled(False)
             self.status_lbl.setText('● REVIEWING C2-LIKE INDICATORS')
-            self.c2_worker = C2HuntWorker(self)
+            self.c2_worker = C2HuntWorker(self.selected_bssid(), self)
             self.c2_worker.finished_report.connect(self._show_c2_hunt)
             self.c2_worker.failed_report.connect(self._c2_hunt_failed)
             self.c2_worker.finished.connect(lambda: self.c2_btn.setEnabled(True))
@@ -327,6 +463,8 @@ def main():
                 'BEACON COMPUTING INITIATIVE — C2 HUNT REPORT',
                 'Developer Seal: CJB-DEV-2026',
                 'Mode: Passive wireless snapshot; no RF injection or channel sweep',
+                f"Network scope: {rep.get('scope_bssid') or 'All observed networks'}",
+                f"Imported edge flow not attributable to selected AP: {rep.get('flow_evidence_unattributed',False)}",
                 f"Observed channels: {', '.join(rep.get('observed_channels', [])) or 'none'}",
                 f"Access points observed: {rep.get('aps_observed', 0)}",
                 f"Stations observed: {rep.get('total_stations_analyzed', 0)}",
@@ -358,9 +496,9 @@ def main():
                 return
             # Selected AP if a row is selected; otherwise automatically use
             # the most-observed beaconing AP. No RF transmission or retune.
-            bssid = None
+            bssid = self.selected_bssid()
             idx = self.ap_table.currentRow()
-            if idx >= 0 and self.ap_table.item(idx, 0) is not None:
+            if bssid is None and idx >= 0 and self.ap_table.item(idx, 0) is not None:
                 bssid = self.ap_table.item(idx, 0).text()
             self.trace_btn.setEnabled(False)
             self.trace_worker = AutoTraceWorker(bssid, self)

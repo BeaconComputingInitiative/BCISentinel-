@@ -1,7 +1,7 @@
 # BCI Orbital Sentinel
 
 **Beacon Computing Initiative · Defensive wireless observation and network threat-intelligence analysis**  
-**Release:** v4.6.11-TRACE · **Developer seal:** `CJB-DEV-2026` · **Platform:** Kali Linux / Debian-compatible Linux · **Python, Docker, Scapy, PyQt6, Prometheus**
+**Release:** v4.6.13-NETSCOPE · **Developer seal:** `CJB-DEV-2026` · **Platform:** Kali Linux / Debian-compatible Linux · **Python, Docker, Scapy, PyQt6, Prometheus**
 
 ![Cerberus guarding the BCI gates — Orbital Sentinel project emblem](assets/cerberus-bci.jpg)
 
@@ -132,8 +132,8 @@ Detection rules are configurable heuristics, not attribution or malware verdicts
 # Stop current v4.6.7-op2 capture before upgrading:
 "$HOME/BCI/Docker Projects/orbital/orbitalctl.sh" stop
 cd ~/Downloads
-unzip -o BCI-Orbital-Sentinel-v4.6.11-TRACE.zip
-cd BCI-Orbital-Sentinel-v4.6.11-TRACE
+unzip -o BCI-Orbital-Sentinel-v4.6.13-NETSCOPE.zip
+cd BCI-Orbital-Sentinel-v4.6.13-NETSCOPE
 sha256sum -c SHA256SUMS
 bash install_orbital.sh
 ORBITAL="$HOME/BCI/Docker Projects/orbital/orbitalctl.sh"
@@ -172,7 +172,7 @@ find "$HOME/BCI/Docker Projects/orbital/captures/ml" -name '*.jsonl' -type f
 
 Container capture on your actual Kali adapter, vendor database availability, and PyQt6 GUI rendering must be verified after installation. All integration tests are local/synthetic until that validation.
 
-## v4.6.11-TRACE — integrated GUI button and local API
+## v4.6.13-NETSCOPE — integrated GUI button and local API
 
 The GUI adds **Hunt C2 Signatures**, a nonblocking request to
 `http://127.0.0.1:9100/hunt_c2`. It performs a bounded review of already
@@ -192,7 +192,7 @@ flow heuristics are verified botnet labels.
 CLI equivalent: `bash orbitalctl.sh hunt-c2`. The HTTP interface is bound
 to `127.0.0.1` only. Both original passive services are unchanged.
 
-## v4.6.11-TRACE — AP Auto-Trace integration
+## v4.6.13-NETSCOPE — AP Auto-Trace integration
 
 The **Auto-Trace AP** GUI button and `bash orbitalctl.sh trace [BSSID]` query
 `GET /trace` at `127.0.0.1:9100`. The button uses a selected AP row when available,
@@ -238,3 +238,41 @@ in `SHA256SUMS`. Previously their absence prevented `orbitalctl.sh start`
 from passing the release integrity gate. A clean-install regression test
 now verifies every manifest entry after installation. Existing capture files
 are preserved.
+
+
+## v4.6.13-NETSCOPE — Frame classes and DNS visibility
+
+Frame totals now distinguish 802.11 management, data, control and other frames;
+`beacons_total` and `probe_responses_total` are specific management subsets,
+not additional frames. The AP table's *AP Mgmt Frames* column means beacon
+plus probe-response advertisements from that BSSID, **not all IP traffic**.
+The station table remains observational and does not assume authentication.
+
+### Passive DNS observation
+
+The DNS tab counts only **successfully decoded unprotected Wi-Fi data frames**
+containing DNS over UDP/TCP port 53. It displays query/response/NXDOMAIN counts
+and per-BSSID totals, without storing raw queried domains, source IPs or payloads.
+These counters can remain zero on WPA2/WPA3 networks even while frames rise.
+Encrypted DNS-over-HTTPS/TLS and VPN DNS are not decoded. The Edge Flow panel
+remains a **separate** offline pipeline for authorized DNS or Zeek logs, with
+`dns_rows`, NXDOMAIN/DGA heuristics, and IoC corroboration.
+
+Metrics: `bci_orbital_management_frames_total`, `data_frames_total`,
+`control_frames_total`, `other_frames_total`,
+`other_management_frames_total`, `beacons_total`,
+`dns_packets_observed_total`, `dns_queries_observed_total`,
+`dns_responses_observed_total`, and `dns_nxdomain_observed_total`.
+
+The GUI differentiates API-offline saved observations from live, current-version
+state. Manufacturer lookup ignores IEEE `(base 16)` address continuation lines.
+No wireless injection, AP joining, automatic channel hopping, or firewall changes
+were introduced. Network monitoring must comply with applicable authorization.
+
+## v4.6.13-NETSCOPE — per-network investigation scope
+
+A **Network scope** selector now filters AP inventory, stations with observed AP evidence, wireless indicators, and passively decoded plaintext DNS metadata by selected **BSSID**. Identical SSIDs may refer to distinct APs, so the selector distinguishes their BSSIDs and channel. The selection persists across refreshes and a double-click on an AP row chooses that network. The **All observed networks** choice restores global view.
+
+**Global frame-class counters remain global** and say so. A passive network selection does not retune the radio, transmit packets, or force a Wi-Fi association. Plaintext DNS is displayed per AP only when an unprotected frame can be decoded with a reliable AP header. Encrypted traffic, DNS-over-HTTPS and resolver/Zeek imports are **not** assigned to a wireless BSSID without separate authoritative correlation.
+
+`Hunt C2 Signatures` passes the selected BSSID to `/hunt_c2?bssid=...`; this filters only wireless indicators belonging to that AP. Imported edge-flow findings are held separate and explicitly marked unassociated in AP-scoped reports. API defaults without `bssid` remain compatible. CLI: `bash orbitalctl.sh hunt-c2 [BSSID]` and `bash orbitalctl.sh trace [BSSID]`.
