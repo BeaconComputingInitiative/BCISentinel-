@@ -45,7 +45,7 @@
     "network_scope.py": "56b49d6027fc16f1b58a8bdebe84ecec6f4828f059abeec843fc18ee1656ca43",
     "orbitalctl.sh": "a5d4a949bcac7b974d84e61022e7a52e0dc3aba21e27ef400c9f8f3fa794b313",
     "sentinel_exporter.py": "1eeedc9e549430d789fcad378548f806741fa7f8c70a774057164e6e4a4888dd",
-    "sentinel_gui.py": "32ce95463fa5bf1ab3b90fdf189beb2fe574816f0a0476cea51b1d21a9000b1f",
+    "sentinel_gui.py": "380ed3d50183b74e117d8e8a21f892a44f062cecc3513590368a365c08f34421",
     "start_sentinel_gui.sh": "16c4c324551a2bea33fe1f38949879cee195587e89e1379ba0f35550aa738181",
     "tests/test_auto_trace.py": "6e93a21bac4fc2b0552d8052bfb640523b4281ab265a56fccf4d135dfb35293a",
     "tests/test_c2_hunt.py": "6114f0d21dc2541bb4c0eccd2c1faf98dc7f2f337e5e16d5af88b8c2026bc277",
