@@ -24,7 +24,10 @@
     "auto-selected existing monitor/managed/Ethernet interface without online checks",
     "idle mode when no capture interface is present and standby for interfaces down",
     "distinct runtime status without erasing saved capture evidence",
-    "non-80211 packet and IP protocol counters without AP identity claims"
+    "non-80211 packet and IP protocol counters without AP identity claims",
+    "native capture-interface selector with Auto/Idle and offline interfaces",
+    "separate AP scope and capture interface controls in Sentinel/Nexus GUI",
+    "explicit operator-confirmed capture start without retuning interfaces"
   ],
   "developer_seal": "CJB-DEV-2026",
   "files_sha256": {
@@ -32,17 +35,17 @@
     ".gitignore": "d74fb7bc7550cca499d88d276ab90a6aa9a5e13f5e6a6e57b33dac2487a48c0a",
     "CONTRIBUTING.md": "582517cd559d2f99603d01deea187fe612274ab5cf6eb903cf787bb35ce8bfb6",
     "Dockerfile": "7b2bc8eeb633fd484388c6df2c1affa0cff8083b336cee16edfda7102c7005ed",
-    "README.md": "78532d23ed3fd223ab23110b4f5cc74bf14f4b82e893a0f9136f9fb6b3c426f5",
+    "README.md": "4b5d8e13bc25f2aa712320ff8b44010ec4ecb7df5a0a216bd7129cfd8d734efb",
     "assets/cerberus-bci.jpg": "f8d79dda8b424fefa512e927efb0273264094028754e674875428bebbe8d7b1f",
     "bci-sentinel-gui.service": "d7bd32e98afcc42956ae638c58cb24f35ed03c0b293a7b0e8230ba47f2f69b40",
-    "bci_monitor_select.py": "46aff2af07d123c153e6c005c46959e6e579fd74ff92e1bfa0caee3197181850",
+    "bci_monitor_select.py": "50cd519ba088a4a9460a833cbf0fbd0c392e601ee6522cecfb488d9ebd747371",
     "compose.yaml": "a624f7739e4e7b3eab99efe248cf8bba54e17702eefb1b5b7ced6589ea21fd4a",
     "flow_intel.py": "0f61d5ae6353993c74db94da75eae738cec4f7c971379e73d8dfd19ca8043fb8",
     "install_orbital.sh": "e8f4c01470638f2ac441cc64a905f6b2917904d201277f1bc95ab6321f4ff8ba",
     "network_scope.py": "56b49d6027fc16f1b58a8bdebe84ecec6f4828f059abeec843fc18ee1656ca43",
     "orbitalctl.sh": "a5d4a949bcac7b974d84e61022e7a52e0dc3aba21e27ef400c9f8f3fa794b313",
     "sentinel_exporter.py": "1eeedc9e549430d789fcad378548f806741fa7f8c70a774057164e6e4a4888dd",
-    "sentinel_gui.py": "cdafe4498181ecfa074c9588ca629535ee80b8cfda96ff0b848f4850a0dc5771",
+    "sentinel_gui.py": "32ce95463fa5bf1ab3b90fdf189beb2fe574816f0a0476cea51b1d21a9000b1f",
     "start_sentinel_gui.sh": "16c4c324551a2bea33fe1f38949879cee195587e89e1379ba0f35550aa738181",
     "tests/test_auto_trace.py": "6e93a21bac4fc2b0552d8052bfb640523b4281ab265a56fccf4d135dfb35293a",
     "tests/test_c2_hunt.py": "6114f0d21dc2541bb4c0eccd2c1faf98dc7f2f337e5e16d5af88b8c2026bc277",
@@ -50,7 +53,8 @@
     "tests/test_intelligence.py": "2095846858bfd399a776f47e2f8969823f4139e72122e04e6f1b0f4e22e8b778",
     "tests/test_network_scope.py": "99211d56e9085756a1d545b5dbdf04c5b3a5f53bf29624adfb37c1bc680300cf",
     "tests/test_operational.py": "54390b592cfb596a8750ae574cd87e87e3a8634c2326c450e2bd92501c3ca208",
-    "tests/test_any_interface.py": "e4e276d4f21e169c27ca5cd74f4f7bf72a6047c57f0b096420f0dda3060bf3b1"
+    "tests/test_any_interface.py": "e4e276d4f21e169c27ca5cd74f4f7bf72a6047c57f0b096420f0dda3060bf3b1",
+    "tests/test_interface_dropdown.py": "14dd84159f982b451937f6bb5a903d5bf4190cf77496b85a1dcc368f2346c141"
   },
   "hotfix": "Installer copies all release manifest paths, including dotfiles and GitHub workflow.",
   "initiative": "Beacon Computing Initiative",
@@ -60,6 +64,6 @@
     "No unrelated capture/credentials included"
   ],
   "project_seal": "BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX",
-  "release": "4.6.14-FLEX",
+  "release": "4.6.15-IFACEGUI",
   "verification": "Offline regression tests required; actual Kali capture hardware not independently verified."
 }

@@ -283,3 +283,12 @@ A **Network scope** selector now filters AP inventory, stations with observed AP
 Sentinel selects an existing local capture interface from ip -j link, with optional iw classification. Selection requires neither an internet connection nor a carrier nor a monitor-mode radio. An administratively DOWN interface enters STANDBY; if none is available, automatic selection returns none/idle and starts the service in IDLE mode. Nothing changes link state, Wi-Fi mode, or NetworkManager configuration.
 
 Use BCI_IFACE=auto (default), BCI_IFACE=wlan0, BCI_IFACE=eth0, BCI_IFACE=lo (explicit loopback), or BCI_IFACE=none with orbitalctl.sh start. Managed Wi-Fi and Ethernet observe only locally available L2/L3 packets and do not claim SSID or beacon information; monitor mode retains 802.11 analysis. Idle mode exposes status/metrics and preserves the previous real capture snapshot. Runtime state is written to captures/bci_runtime_status.json and related discovery status file every 1.5 seconds. Prometheus includes bci_orbital_capture_ready and non-Dot11 counters. API health alone is not evidence of real packet capture. No internet connectivity is tested.
+
+
+## Capture interface dropdown in Sentinel/Nexus (v4.6.15-IFACEGUI)
+
+The native PyQt6 header has two distinct controls: **Network scope** filters observed APs, whereas **Capture interface** chooses the local packet source. Select **Auto**, **None — Idle**, or any available interface, including offline/down `wlan0`, Ethernet, loopback, or virtual devices. Click **↻ Interfaces** to refresh the inventory without network access. The dropdown lists interfaces using `ip -j link show`; `iw dev` classifies managed/monitor radios only when available.
+
+Selecting an entry changes no existing capture service. **▶ Start selected** shows the chosen source and requires operator approval; it invokes the already-installed `orbitalctl.sh start` with that interface. If capture is already running, the guarded launcher refuses to replace it. Stop/restart separately when deliberately switching interfaces. It never changes wireless mode, IP routes, firewall or BCILock policy. Actual packet reception depends on OS permissions and traffic, not on internet access. Idle mode preserves historical capture data. The current runtime source/status is displayed beside the dropdown.
+
+Install this source release using the existing `install_orbital.sh` after confirming there are no running Sentinel capture services; Nexus can embed the updated Sentinel checkout without restarting BCIBot, Ollama, or BCILock.
