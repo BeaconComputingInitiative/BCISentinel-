@@ -40,7 +40,7 @@ def decrypt_wpa_capture(pcap_path, ssid, passphrase, output_path=None):
         return (True, output_path) if res.returncode == 0 else (False, res.stderr.strip())
     except Exception as e: return False, str(e)
 
-def main():
+def main(nexus_extension=None):
     try:
         from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                      QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
@@ -196,6 +196,11 @@ def main():
             self.tab_terminal = QWidget()
             self.init_terminal_tab()
             self.tabs.addTab(self.tab_terminal, "💻 Terminal Stream")
+
+            # One native Qt window: Nexus may add tabs without launching a second GUI.
+            # A missing extension leaves standalone Sentinel behavior unchanged.
+            if nexus_extension is not None:
+                nexus_extension(self)
 
             self.poll_timer = QTimer(self)
             self.poll_timer.timeout.connect(self.poll_data)
