@@ -1,5 +1,5 @@
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL COMPOSE v4.6.13-NETSCOPE
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL COMPOSE v4.6.14-FLEX
 # Developer Seal: CJB-DEV-2026
 # SHA-256: see SHA256SUMS
 # ============================================================================
@@ -35,7 +35,8 @@ services:
   sentinel:
     <<: *bci-base
     environment:
-      BCI_IFACE: ${BCI_IFACE:-not-configured}
+      BCI_IFACE: ${BCI_IFACE:-none}
+      BCI_CAPTURE_MODE: ${BCI_CAPTURE_MODE:-idle}
       BCI_ROLE: sentinel
       PROMETHEUS_PORT: "9100"
       BCI_ML_INTERVAL: "10"

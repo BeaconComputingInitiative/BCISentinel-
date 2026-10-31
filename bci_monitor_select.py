@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | MONITOR INTERFACE SELECTOR v4.6.7-op2
+# BEACON COMPUTING INITIATIVE | PASSIVE INTERFACE SELECTOR v4.6.14-FLEX
 # Developer Seal: CJB-DEV-2026
 # SHA-256: see SHA256SUMS
 # ============================================================================
@@ -48,23 +48,96 @@ def choose_monitor(devices: list[dict], requested: str = 'auto') -> str:
     return selected[0]['name']
 
 
+
+def parse_link_inventory(output: str) -> list[dict]:
+    """List local interfaces without requiring carrier, IP or internet service."""
+    import json
+    entries = json.loads(output)
+    if not isinstance(entries, list):
+        raise ValueError("Unexpected ip -j link response")
+    result = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("ifname", ""))
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", name):
+            continue
+        result.append({
+            "name": name,
+            "up": "UP" in entry.get("flags", []),
+            "link_type": entry.get("link_type", ""),
+        })
+    return result
+
+
+def choose_any(links: list[dict], radios: list[dict], requested: str = "auto") -> tuple[str, str]:
+    """Choose if and only if the named interface exists, or return idle on no device.
+
+    Never change link state, Wi-Fi mode, routing, or NetworkManager settings.
+    """
+    types = {item["name"]: item["type"] for item in radios}
+    records = {item["name"]: item for item in links}
+    if requested in ("none", "idle", "offline"):
+        return "none", "idle"
+    if requested != "auto":
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", requested):
+            raise ValueError("Invalid interface name")
+        if requested not in records:
+            raise ValueError("Interface not present: " + requested)
+        if requested == "lo":
+            return "lo", "loopback"
+        return requested, types.get(requested, "ethernet")
+
+    excluded = ("veth", "docker", "br-", "virbr", "tailscale",
+                "tun", "tap", "wg", "zt", "ifb")
+    eligible = [x for x in links
+                if x["name"] != "lo"
+                and not x["name"].startswith(excluded)]
+    if not eligible:
+        return "none", "idle"
+    # An UP interface is preferred, but DOWN interfaces remain eligible.
+    def ordering(link: dict):
+        name = link["name"]
+        kind = types.get(name, "ethernet")
+        preference = {"monitor": 0, "managed": 1, "ethernet": 2}.get(kind, 3)
+        return (not link["up"], preference, name)
+
+    selected = sorted(eligible, key=ordering)[0]
+    return selected["name"], types.get(selected["name"], "ethernet")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Select existing dedicated monitor-mode wireless interface')
-    parser.add_argument('--iface', default='auto')
+    parser = argparse.ArgumentParser(
+        description="Select existing passive interface or idle mode (no online requirement)")
+    parser.add_argument("--iface", default="auto")
+    parser.add_argument("--format", choices=("name", "tab"), default="name")
     args = parser.parse_args()
     try:
-        result = subprocess.run(['iw', 'dev'], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["ip", "-j", "link", "show"], capture_output=True,
+                                text=True, timeout=10, check=False)
         if result.returncode:
-            raise RuntimeError(result.stderr.strip() or 'iw dev failed')
-        devices = parse_iw_inventory(result.stdout)
-        for dev in devices:
-            print(f"[BCI] seen {dev['name']} phy#{dev['phy']} type={dev['type']}", file=sys.stderr)
-        print(choose_monitor(devices, args.iface))
+            raise RuntimeError(result.stderr.strip() or "ip link failed")
+        links = parse_link_inventory(result.stdout)
+        radios = []
+        try:
+            radios_result = subprocess.run(["iw", "dev"], capture_output=True,
+                                           text=True, timeout=6, check=False)
+            if radios_result.returncode == 0:
+                radios = parse_iw_inventory(radios_result.stdout)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        interface, mode = choose_any(links, radios, args.iface)
+        if args.format == "tab":
+            print(interface + "\t" + mode)
+        else:
+            print(interface)
+        print("[BCI] existing interface=" + interface + " mode=" + mode +
+              " (no internet requirement; no interface changes)", file=sys.stderr)
         return 0
     except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-        print(f'[BCI][ERROR] {exc}', file=sys.stderr)
+        print("[BCI][ERROR] " + str(exc), file=sys.stderr)
         return 2
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
