@@ -276,3 +276,10 @@ A **Network scope** selector now filters AP inventory, stations with observed AP
 **Global frame-class counters remain global** and say so. A passive network selection does not retune the radio, transmit packets, or force a Wi-Fi association. Plaintext DNS is displayed per AP only when an unprotected frame can be decoded with a reliable AP header. Encrypted traffic, DNS-over-HTTPS and resolver/Zeek imports are **not** assigned to a wireless BSSID without separate authoritative correlation.
 
 `Hunt C2 Signatures` passes the selected BSSID to `/hunt_c2?bssid=...`; this filters only wireless indicators belonging to that AP. Imported edge-flow findings are held separate and explicitly marked unassociated in AP-scoped reports. API defaults without `bssid` remain compatible. CLI: `bash orbitalctl.sh hunt-c2 [BSSID]` and `bash orbitalctl.sh trace [BSSID]`.
+
+
+## Universal-interface and offline startup (v4.6.14-FLEX)
+
+Sentinel selects an existing local capture interface from ip -j link, with optional iw classification. Selection requires neither an internet connection nor a carrier nor a monitor-mode radio. An administratively DOWN interface enters STANDBY; if none is available, automatic selection returns none/idle and starts the service in IDLE mode. Nothing changes link state, Wi-Fi mode, or NetworkManager configuration.
+
+Use BCI_IFACE=auto (default), BCI_IFACE=wlan0, BCI_IFACE=eth0, BCI_IFACE=lo (explicit loopback), or BCI_IFACE=none with orbitalctl.sh start. Managed Wi-Fi and Ethernet observe only locally available L2/L3 packets and do not claim SSID or beacon information; monitor mode retains 802.11 analysis. Idle mode exposes status/metrics and preserves the previous real capture snapshot. Runtime state is written to captures/bci_runtime_status.json and related discovery status file every 1.5 seconds. Prometheus includes bci_orbital_capture_ready and non-Dot11 counters. API health alone is not evidence of real packet capture. No internet connectivity is tested.

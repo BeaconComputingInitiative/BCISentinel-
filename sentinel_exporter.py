@@ -636,7 +636,7 @@ def _persist_state() -> None:
     with lock:
         observed = metrics['frames_total'] > 0
     if observed:
-        write_snapshot(snapshot())
+        write_snapshot(snapshot(), STATE_FILE)
 
 
 def state_flusher() -> None:
