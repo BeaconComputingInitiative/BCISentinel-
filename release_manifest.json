@@ -20,7 +20,11 @@
     "802.11 class counters",
     "passively decoded plaintext DNS port 53 metadata only",
     "DNS tab and explicit stale API status",
-    "per-BSSID AP/station/indicator/plaintext DNS view and scoped C2 review"
+    "per-BSSID AP/station/indicator/plaintext DNS view and scoped C2 review",
+    "auto-selected existing monitor/managed/Ethernet interface without online checks",
+    "idle mode when no capture interface is present and standby for interfaces down",
+    "distinct runtime status without erasing saved capture evidence",
+    "non-80211 packet and IP protocol counters without AP identity claims"
   ],
   "developer_seal": "CJB-DEV-2026",
   "files_sha256": {
@@ -28,24 +32,25 @@
     ".gitignore": "d74fb7bc7550cca499d88d276ab90a6aa9a5e13f5e6a6e57b33dac2487a48c0a",
     "CONTRIBUTING.md": "582517cd559d2f99603d01deea187fe612274ab5cf6eb903cf787bb35ce8bfb6",
     "Dockerfile": "7b2bc8eeb633fd484388c6df2c1affa0cff8083b336cee16edfda7102c7005ed",
-    "README.md": "af6e9f86b8b9e93ad91fef82b3013b770ddb91d44f72c8e57e8edad3a2cf7ad6",
+    "README.md": "78532d23ed3fd223ab23110b4f5cc74bf14f4b82e893a0f9136f9fb6b3c426f5",
     "assets/cerberus-bci.jpg": "f8d79dda8b424fefa512e927efb0273264094028754e674875428bebbe8d7b1f",
     "bci-sentinel-gui.service": "d7bd32e98afcc42956ae638c58cb24f35ed03c0b293a7b0e8230ba47f2f69b40",
-    "bci_monitor_select.py": "3e9010aa6ef8a2e8f412e245a5be92659fec59fee30d263e25dd341c7dc612f8",
-    "compose.yaml": "54564546af7e1acb5dfb25912e42665f7559515ab60d53174174849ce440c7b6",
+    "bci_monitor_select.py": "46aff2af07d123c153e6c005c46959e6e579fd74ff92e1bfa0caee3197181850",
+    "compose.yaml": "a624f7739e4e7b3eab99efe248cf8bba54e17702eefb1b5b7ced6589ea21fd4a",
     "flow_intel.py": "0f61d5ae6353993c74db94da75eae738cec4f7c971379e73d8dfd19ca8043fb8",
     "install_orbital.sh": "e8f4c01470638f2ac441cc64a905f6b2917904d201277f1bc95ab6321f4ff8ba",
     "network_scope.py": "56b49d6027fc16f1b58a8bdebe84ecec6f4828f059abeec843fc18ee1656ca43",
-    "orbitalctl.sh": "32ccb5bd713e686b4d3debbc9b763a223007e0d05a3e3b484bda09138fa94056",
-    "sentinel_exporter.py": "0671fab317812d607bee8ab3c243d00af427b31a804a108ddd742a69755ce08b",
-    "sentinel_gui.py": "d9cf63f0778d134e7e5d06eeaec2c1308b5daef3c0416fdffc20fe9c2d1853e7",
+    "orbitalctl.sh": "795c1533ce851cfaa62a2c2ed01964074de6e146ed7d0c55caf9fc378462de51",
+    "sentinel_exporter.py": "1eeedc9e549430d789fcad378548f806741fa7f8c70a774057164e6e4a4888dd",
+    "sentinel_gui.py": "cdafe4498181ecfa074c9588ca629535ee80b8cfda96ff0b848f4850a0dc5771",
     "start_sentinel_gui.sh": "16c4c324551a2bea33fe1f38949879cee195587e89e1379ba0f35550aa738181",
     "tests/test_auto_trace.py": "6a9b0bf342cf9df81b0e12fd87af605a4b2203bfa1277171948816466ebe053f",
     "tests/test_c2_hunt.py": "6114f0d21dc2541bb4c0eccd2c1faf98dc7f2f337e5e16d5af88b8c2026bc277",
     "tests/test_frame_dns.py": "4d2d1328724f145af1345dc2859ee99cc1efc1b3cd3ceffee94efe15f1321857",
     "tests/test_intelligence.py": "2095846858bfd399a776f47e2f8969823f4139e72122e04e6f1b0f4e22e8b778",
     "tests/test_network_scope.py": "99211d56e9085756a1d545b5dbdf04c5b3a5f53bf29624adfb37c1bc680300cf",
-    "tests/test_operational.py": "54390b592cfb596a8750ae574cd87e87e3a8634c2326c450e2bd92501c3ca208"
+    "tests/test_operational.py": "54390b592cfb596a8750ae574cd87e87e3a8634c2326c450e2bd92501c3ca208",
+    "tests/test_any_interface.py": "e4e276d4f21e169c27ca5cd74f4f7bf72a6047c57f0b096420f0dda3060bf3b1"
   },
   "hotfix": "Installer copies all release manifest paths, including dotfiles and GitHub workflow.",
   "initiative": "Beacon Computing Initiative",
@@ -55,6 +60,6 @@
     "No unrelated capture/credentials included"
   ],
   "project_seal": "BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX",
-  "release": "4.6.13-NETSCOPE",
-  "verification": "Regression tests and clean install required; live Kali unverified."
+  "release": "4.6.14-FLEX",
+  "verification": "Offline regression tests required; actual Kali capture hardware not independently verified."
 }
