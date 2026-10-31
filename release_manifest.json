@@ -54,7 +54,9 @@
     "tests/test_network_scope.py": "99211d56e9085756a1d545b5dbdf04c5b3a5f53bf29624adfb37c1bc680300cf",
     "tests/test_operational.py": "54390b592cfb596a8750ae574cd87e87e3a8634c2326c450e2bd92501c3ca208",
     "tests/test_any_interface.py": "e4e276d4f21e169c27ca5cd74f4f7bf72a6047c57f0b096420f0dda3060bf3b1",
-    "tests/test_interface_dropdown.py": "14dd84159f982b451937f6bb5a903d5bf4190cf77496b85a1dcc368f2346c141"
+    "tests/test_interface_dropdown.py": "14dd84159f982b451937f6bb5a903d5bf4190cf77496b85a1dcc368f2346c141",
+    "docs/DEVELOPERS_LOG.md": "bd2b1da3549776f911b7ae417adf640ea5f2177d5f41cf69748b2282c019a163",
+    "docs/DEVELOPERS_LOG.md.sha256": "e98b9a466db3f79ac0210a05d794c1f4f4836a6c62e2f845bb1b4f6b0dfab6ba"
   },
   "hotfix": "Installer copies all release manifest paths, including dotfiles and GitHub workflow.",
   "initiative": "Beacon Computing Initiative",
