@@ -20,7 +20,7 @@ import urllib.request
 import urllib.error
 from urllib.parse import urlencode
 
-__version__ = "4.6.13-NETSCOPE"
+__version__ = "4.6.14-FLEX"
 OPERATOR_NAME = "Chance Joaquin Boone"
 PROMETHEUS_METRICS_URL = "http://127.0.0.1:9100/metrics"
 C2_HUNT_API_URL = "http://127.0.0.1:9100/hunt_c2"
@@ -437,7 +437,27 @@ def main(nexus_extension=None):
                 except (ValueError, TypeError):
                     fresh = False
                 if not self.frozen:
-                    if fresh and getattr(self, 'last_state_version', '') == __version__:
+                    runtime_path = os.path.join(
+                        os.path.dirname(STATE_FILE_PATH), 'bci_runtime_status.json')
+                    runtime = {}
+                    try:
+                        if os.path.getsize(runtime_path) < 65536:
+                            with open(runtime_path, encoding='utf-8') as source:
+                                runtime = json.load(source)
+                    except (OSError, ValueError):
+                        pass
+                    runtime_mode = runtime.get('capture_mode')
+                    runtime_state = runtime.get('capture_state')
+                    if runtime_mode == 'idle':
+                        self.status_lbl.setText(
+                            "● SENTINEL IDLE · NO INTERFACE · HISTORICAL OBSERVATIONS")
+                    elif runtime_state == 'standby':
+                        self.status_lbl.setText(
+                            "● SENTINEL STANDBY · INTERFACE DOWN · HISTORICAL OBSERVATIONS")
+                    elif runtime_state == 'error':
+                        self.status_lbl.setText(
+                            "● SENTINEL CAPTURE ERROR · CHECK CONTAINER LOGS")
+                    elif fresh and getattr(self, 'last_state_version', '') == __version__:
                         self.status_lbl.setText("● API LIVE · SNAPSHOT FRESH")
                     else:
                         self.status_lbl.setText("● API LIVE · SAVED STATE STALE/OLDER VERSION")

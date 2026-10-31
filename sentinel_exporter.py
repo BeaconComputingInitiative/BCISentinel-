@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL EXPORTER v4.6.13-NETSCOPE
+# BEACON COMPUTING INITIATIVE | ORBITAL SENTINEL EXPORTER v4.6.14-FLEX
 # Developer Seal: CJB-DEV-2026
 # Project Seal: BEACON-COMPUTING-INITIATIVE-ORBITAL-SENTINEL-LINUX
 # SHA-256: see SHA256SUMS, generated for every release file
@@ -26,13 +26,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-VERSION = '4.6.13-NETSCOPE'
+VERSION = '4.6.14-FLEX'
 SEAL = 'CJB-DEV-2026'
-IFACE = os.environ.get('BCI_IFACE', '').strip()
+IFACE = os.environ.get('BCI_IFACE', 'none').strip()
+CAPTURE_MODE = os.environ.get('BCI_CAPTURE_MODE', 'monitor').strip()
+CAPTURE_STATE = 'idle' if IFACE in ('none', 'idle') or CAPTURE_MODE == 'idle' else 'standby'
 ROLE = os.environ.get('BCI_ROLE', 'sentinel').strip()
 PORT = int(os.environ.get('PROMETHEUS_PORT', '9100'))
 DATA_DIR = Path(os.environ.get('BCI_DATA_DIR', '/data'))
 STATE_FILE = DATA_DIR / ('bci_state.json' if ROLE == 'sentinel' else 'bci_discovery_state.json')
+RUNTIME_FILE = DATA_DIR / ('bci_runtime_status.json' if ROLE == 'sentinel'
+                           else 'bci_discovery_runtime_status.json')
 metrics = {'frames_total': 0, 'aps_active': 0, 'stations_active': 0, 'rx_errors': 0,
            'beacons_total': 0, 'probe_responses_total': 0, 'deauth_frames_total': 0,
            'eapol_frames_total': 0, 'wireless_indicators_total': 0,
@@ -41,7 +45,10 @@ metrics = {'frames_total': 0, 'aps_active': 0, 'stations_active': 0, 'rx_errors'
            'control_frames_total': 0, 'other_frames_total': 0,
            'other_management_frames_total': 0, 'dns_packets_observed_total': 0,
            'dns_queries_observed_total': 0, 'dns_responses_observed_total': 0,
-           'dns_nxdomain_observed_total': 0}
+           'dns_nxdomain_observed_total': 0, 'non_dot11_frames_total': 0,
+            'ipv4_frames_total': 0, 'ipv6_frames_total': 0,
+            'arp_frames_total': 0, 'tcp_frames_total': 0,
+            'udp_frames_total': 0, 'icmp_frames_total': 0}
 active_aps: dict[str, dict] = {}
 active_stations: dict[str, dict] = {}
 lock = threading.RLock()
@@ -307,8 +314,26 @@ def packet_handler(pkt: Any) -> None:
     try:
         from scapy.layers.dot11 import Dot11, Dot11Beacon, Dot11ProbeResp, Dot11Elt, Dot11ProbeReq
         if not pkt.haslayer(Dot11):
+            # Managed Wi-Fi, Ethernet and loopback generally expose ordinary
+            # L2/L3 packets rather than raw Dot11 management advertisements.
+            # Do not invent SSIDs or AP/station identities from such traffic.
             with lock:
                 metrics['other_frames_total'] += 1
+                metrics['non_dot11_frames_total'] += 1
+            try:
+                from scapy.layers.inet import IP, TCP, UDP, ICMP
+                from scapy.layers.inet6 import IPv6
+                from scapy.layers.l2 import ARP
+                with lock:
+                    for layer, key in (
+                        (IP, 'ipv4_frames_total'), (IPv6, 'ipv6_frames_total'),
+                        (ARP, 'arp_frames_total'), (TCP, 'tcp_frames_total'),
+                        (UDP, 'udp_frames_total'), (ICMP, 'icmp_frames_total'),
+                    ):
+                        if pkt.haslayer(layer):
+                            metrics[key] += 1
+            except ImportError:
+                pass
             return
         frame = pkt[Dot11]
         transmitter = _normalize_mac(getattr(frame, 'addr2', None))
@@ -477,6 +502,7 @@ def snapshot() -> dict[str, Any]:
     with lock:
         return {
             'seal': SEAL, 'version': VERSION, 'role': ROLE, 'iface': IFACE,
+            'capture_mode': CAPTURE_MODE, 'capture_state': CAPTURE_STATE,
             'updated_at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             'metrics': dict(metrics),
             'aps': [{k:v for k,v in ap.items() if not k.startswith('_')} for ap in active_aps.values()],
@@ -485,7 +511,11 @@ def snapshot() -> dict[str, Any]:
             'dns_observation': {'source': 'passive_decoded_plaintext_port53_only',
                                 'per_ap': {k: dict(v) for k,v in dns_per_ap.items()},
                                 'limitations': 'WPA2/WPA3 and DoH/DoT payloads not visible without authorized endpoint/edge telemetry'},
-            'visibility': 'passive_80211_metadata_only; encrypted C2 cannot be inspected',
+            'visibility': (
+                'passive_80211_metadata_only; encrypted C2 cannot be inspected'
+                if CAPTURE_MODE == 'monitor' else
+                'local_interface_l2_l3_only; no_80211_beacon_or_AP_inference'
+            ),
         }
 
 
@@ -571,11 +601,49 @@ def finalize_ml_manifest() -> None:
     (root / f'{ROLE}_SHA256SUMS').write_text('\n'.join(rows) + ('\n' if rows else ''), encoding='utf-8')
 
 
+
+def _interface_up(iface: str) -> bool:
+    """An existing UP interface is usable whether or not it has internet/carrier."""
+    try:
+        flags = int((Path('/sys/class/net') / iface / 'flags').read_text().strip(), 16)
+        return bool(flags & 0x1)
+    except (OSError, ValueError):
+        return False
+
+
+def runtime_status() -> dict[str, Any]:
+    with lock:
+        return {
+            'initiative': 'BEACON COMPUTING INITIATIVE',
+            'developer_seal': SEAL,
+            'version': VERSION,
+            'role': ROLE,
+            'iface': IFACE,
+            'capture_mode': CAPTURE_MODE,
+            'capture_state': CAPTURE_STATE,
+            'interface_up': False if CAPTURE_STATE == 'idle' else _interface_up(IFACE),
+            'frames_observed_since_start': metrics['frames_total'],
+            'updated_at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'historical_snapshot_preserved_when_idle': True,
+            'limitations': 'Listening does not establish packet reception or internet access.',
+        }
+
+
+def _persist_state() -> None:
+    # Never overwrite the last legitimate capture snapshot with empty data
+    # if and only if there is no newly observed frame in this session.
+    write_snapshot(runtime_status(), RUNTIME_FILE)
+    with lock:
+        observed = metrics['frames_total'] > 0
+    if observed:
+        write_snapshot(snapshot())
+
+
 def state_flusher() -> None:
     last_ml = time.monotonic()
     while not stop_event.wait(1.5):
         try:
-            write_snapshot(snapshot())
+            _persist_state()
             if time.monotonic() - last_ml >= ML_INTERVAL:
                 flush_ml()
                 last_ml = time.monotonic()
@@ -584,7 +652,7 @@ def state_flusher() -> None:
             with lock:
                 metrics['rx_errors'] += 1
     try:
-        write_snapshot(snapshot())
+        _persist_state()
         flush_ml()
         finalize_ml_manifest()
     except OSError as exc:
@@ -592,6 +660,12 @@ def state_flusher() -> None:
 
 
 def background_sniffer() -> None:
+    global CAPTURE_STATE
+    if CAPTURE_MODE == 'idle' or IFACE == 'none':
+        CAPTURE_STATE = 'idle'
+        print('[BCI] IDLE: no capture adapter; metrics and historical state available', flush=True)
+        stop_event.wait()
+        return
     try:
         from scapy.all import sniff
     except ImportError:
@@ -599,9 +673,15 @@ def background_sniffer() -> None:
         stop_event.set()
         return
     while not stop_event.is_set():
+        if not _interface_up(IFACE):
+            CAPTURE_STATE = 'standby'
+            stop_event.wait(2)
+            continue
+        CAPTURE_STATE = 'listening'
         try:
             sniff(iface=IFACE, prn=packet_handler, store=False, timeout=2)
         except Exception as exc:
+            CAPTURE_STATE = 'error'
             with lock:
                 metrics['rx_errors'] += 1
             print(f'[BCI][ERROR] sniff({IFACE}): {type(exc).__name__}: {exc}', flush=True)
@@ -928,9 +1008,25 @@ class MetricsHandler(BaseHTTPRequestHandler):
             with lock:
                 values = dict(metrics)
             data = (\
-                '# HELP bci_orbital_frames_total Total captured 802.11 frames\n'
+                '# HELP bci_orbital_frames_total Total captured frames of any supported link type\n'
                 '# TYPE bci_orbital_frames_total counter\n'
                 f"bci_orbital_frames_total {values['frames_total']}\n"
+                '# TYPE bci_orbital_capture_ready gauge\n'
+                f"bci_orbital_capture_ready {1 if CAPTURE_STATE == 'listening' else 0}\n"
+                '# TYPE bci_orbital_non_dot11_frames_total counter\n'
+                f"bci_orbital_non_dot11_frames_total {values['non_dot11_frames_total']}\n"
+                '# TYPE bci_orbital_ipv4_frames_total counter\n'
+                f"bci_orbital_ipv4_frames_total {values['ipv4_frames_total']}\n"
+                '# TYPE bci_orbital_ipv6_frames_total counter\n'
+                f"bci_orbital_ipv6_frames_total {values['ipv6_frames_total']}\n"
+                '# TYPE bci_orbital_arp_frames_total counter\n'
+                f"bci_orbital_arp_frames_total {values['arp_frames_total']}\n"
+                '# TYPE bci_orbital_tcp_frames_total counter\n'
+                f"bci_orbital_tcp_frames_total {values['tcp_frames_total']}\n"
+                '# TYPE bci_orbital_udp_frames_total counter\n'
+                f"bci_orbital_udp_frames_total {values['udp_frames_total']}\n"
+                '# TYPE bci_orbital_icmp_frames_total counter\n'
+                f"bci_orbital_icmp_frames_total {values['icmp_frames_total']}\n"
                 '# HELP bci_orbital_aps_active Discovered access points\n'
                 '# TYPE bci_orbital_aps_active gauge\n'
                 f"bci_orbital_aps_active {values['aps_active']}\n"
@@ -1017,9 +1113,9 @@ def main() -> int:
         return 2
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        write_snapshot(snapshot())
+        _persist_state()
     except OSError as exc:
-        print(f'[BCI][ERROR] Cannot write {STATE_FILE}: {exc}', flush=True)
+        print(f'[BCI][ERROR] Cannot write runtime state in {DATA_DIR}: {exc}', flush=True)
         return 3
     try:
         server = ThreadingHTTPServer(('127.0.0.1', PORT), MetricsHandler)
@@ -1036,7 +1132,8 @@ def main() -> int:
     t_sniff = threading.Thread(target=background_sniffer, name='packet-sniffer', daemon=True)
     t_flush.start()
     t_sniff.start()
-    print(f'[BCI] READY role={ROLE} iface={IFACE} metrics=127.0.0.1:{PORT} state={STATE_FILE}', flush=True)
+    print(f'[BCI] READY role={ROLE} iface={IFACE} mode={CAPTURE_MODE} metrics=127.0.0.1:{PORT} '
+          f'state={STATE_FILE} runtime={RUNTIME_FILE}', flush=True)
     try:
         while not stop_event.is_set():
             server.handle_request()
