@@ -22,6 +22,9 @@ ST='30:40:50:60:70:80'
 
 class AutoTrace(unittest.TestCase):
     def setUp(self):
+        # Test isolation: prevent a prior probe test from triggering cooldown.
+        # Production probe cooldown behavior remains unchanged.
+        ex.last_probe_monotonic = 0.0
         with ex.lock:
             ex.active_aps.clear(); ex.active_stations.clear()
             for key in ex.metrics: ex.metrics[key]=0

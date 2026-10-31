@@ -44,7 +44,7 @@
     "sentinel_exporter.py": "1eeedc9e549430d789fcad378548f806741fa7f8c70a774057164e6e4a4888dd",
     "sentinel_gui.py": "cdafe4498181ecfa074c9588ca629535ee80b8cfda96ff0b848f4850a0dc5771",
     "start_sentinel_gui.sh": "16c4c324551a2bea33fe1f38949879cee195587e89e1379ba0f35550aa738181",
-    "tests/test_auto_trace.py": "6a9b0bf342cf9df81b0e12fd87af605a4b2203bfa1277171948816466ebe053f",
+    "tests/test_auto_trace.py": "6e93a21bac4fc2b0552d8052bfb640523b4281ab265a56fccf4d135dfb35293a",
     "tests/test_c2_hunt.py": "6114f0d21dc2541bb4c0eccd2c1faf98dc7f2f337e5e16d5af88b8c2026bc277",
     "tests/test_frame_dns.py": "4d2d1328724f145af1345dc2859ee99cc1efc1b3cd3ceffee94efe15f1321857",
     "tests/test_intelligence.py": "2095846858bfd399a776f47e2f8969823f4139e72122e04e6f1b0f4e22e8b778",
