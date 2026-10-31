@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================================
-# BEACON COMPUTING INITIATIVE | PASSIVE INTERFACE SELECTOR v4.6.14-FLEX
+# BEACON COMPUTING INITIATIVE | PASSIVE INTERFACE SELECTOR v4.6.15-IFACEGUI
 # Developer Seal: CJB-DEV-2026
 # SHA-256: see SHA256SUMS
 # ============================================================================
@@ -106,6 +106,47 @@ def choose_any(links: list[dict], radios: list[dict], requested: str = "auto") -
     return selected["name"], types.get(selected["name"], "ethernet")
 
 
+
+def discover_interfaces() -> tuple[list[dict], list[dict]]:
+    """Inspect every local interface, including DOWN/unconnected interfaces."""
+    result = subprocess.run(["ip", "-j", "link", "show"], capture_output=True,
+                            text=True, timeout=8, check=False)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "ip link failed")
+    links = parse_link_inventory(result.stdout)
+    radios: list[dict] = []
+    try:
+        wireless = subprocess.run(["iw", "dev"], capture_output=True,
+                                  text=True, timeout=5, check=False)
+        if wireless.returncode == 0:
+            radios = parse_iw_inventory(wireless.stdout)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return links, radios
+
+
+def interface_choices() -> list[dict]:
+    """Return GUI choices without making a single network connection."""
+    links, radios = discover_interfaces()
+    radio_types = {item["name"]: item["type"] for item in radios}
+    options = [
+        {"name": "auto", "mode": "auto", "up": None,
+         "label": "Auto — choose an existing local interface"},
+        {"name": "none", "mode": "idle", "up": None,
+         "label": "None — Idle / historical data only"},
+    ]
+    for device in links:
+        name = device["name"]
+        kind = ("loopback" if name == "lo"
+                else radio_types.get(name, "ethernet"))
+        state = "UP" if device["up"] else "DOWN / offline"
+        options.append({
+            "name": name, "mode": kind, "up": device["up"],
+            "label": f"{name} — {kind} — {state}",
+        })
+    return options
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Select existing passive interface or idle mode (no online requirement)")
@@ -113,19 +154,7 @@ def main() -> int:
     parser.add_argument("--format", choices=("name", "tab"), default="name")
     args = parser.parse_args()
     try:
-        result = subprocess.run(["ip", "-j", "link", "show"], capture_output=True,
-                                text=True, timeout=10, check=False)
-        if result.returncode:
-            raise RuntimeError(result.stderr.strip() or "ip link failed")
-        links = parse_link_inventory(result.stdout)
-        radios = []
-        try:
-            radios_result = subprocess.run(["iw", "dev"], capture_output=True,
-                                           text=True, timeout=6, check=False)
-            if radios_result.returncode == 0:
-                radios = parse_iw_inventory(radios_result.stdout)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
+        links, radios = discover_interfaces()
         interface, mode = choose_any(links, radios, args.iface)
         if args.format == "tab":
             print(interface + "\t" + mode)

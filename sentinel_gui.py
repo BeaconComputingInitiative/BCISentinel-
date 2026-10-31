@@ -12,6 +12,7 @@ if '/usr/lib/python3/dist-packages' not in sys.path:
     sys.path.insert(0, '/usr/lib/python3/dist-packages')
 
 import json
+from bci_monitor_select import interface_choices
 from network_scope import (visible_aps, visible_stations, visible_indicators,
                            visible_dns, scoped_ap_label)
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ import urllib.request
 import urllib.error
 from urllib.parse import urlencode
 
-__version__ = "4.6.14-FLEX"
+__version__ = "4.6.15-IFACEGUI"
 OPERATOR_NAME = "Chance Joaquin Boone"
 PROMETHEUS_METRICS_URL = "http://127.0.0.1:9100/metrics"
 C2_HUNT_API_URL = "http://127.0.0.1:9100/hunt_c2"
@@ -108,12 +109,43 @@ def main(nexus_extension=None):
             except (OSError, ValueError, urllib.error.URLError) as exc:
                 self.failed_report.emit(f'{type(exc).__name__}: {exc}')
 
+
+    class CaptureStartWorker(QThread):
+        """Start only a selected and operator-confirmed local capture service."""
+        started_ok = pyqtSignal(str)
+        failed = pyqtSignal(str)
+
+        def __init__(self, interface: str, script: str, parent=None):
+            super().__init__(parent)
+            self.interface = interface
+            self.script = script
+
+        def run(self):
+            env = os.environ.copy()
+            env["BCI_IFACE"] = self.interface
+            env["BCI_ACTIVE_PROBE_ENABLED"] = "0"
+            try:
+                result = subprocess.run(
+                    ["bash", self.script, "start"], cwd=os.path.dirname(self.script),
+                    env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                    text=True, errors="replace", timeout=120, check=False
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self.failed.emit(str(exc))
+                return
+            combined = (result.stdout + "\n" + result.stderr)[-6000:]
+            if result.returncode == 0:
+                self.started_ok.emit(combined)
+            else:
+                self.failed.emit(combined or "Capture startup failed")
+
     class BCIControlCenter(QMainWindow):
         def __init__(self):
             super().__init__()
             self.frozen = False
             self.c2_worker = None
             self.trace_worker = None
+            self.capture_start_worker = None
             self.current_snapshot = None
             self.last_state_version = None
             self.last_state_timestamp = None
@@ -165,6 +197,32 @@ def main(nexus_extension=None):
             selection_bar.addStretch()
             main_layout.addLayout(selection_bar)
 
+            # Capture source is independent of the AP Network scope filter.
+            # UP/DOWN status is descriptive: no internet connection is required.
+            capture_bar = QHBoxLayout()
+            capture_bar.addWidget(QLabel("Capture interface:"))
+            self.capture_iface_selector = QComboBox()
+            self.capture_iface_selector.setMinimumWidth(320)
+            self.capture_iface_selector.setToolTip(
+                "Choose any interface, even when offline, or None for idle mode. "
+                "Changing selection alone never starts or restarts capture.")
+            capture_bar.addWidget(self.capture_iface_selector)
+
+            refresh_ifaces_btn = QPushButton("↻ Interfaces")
+            refresh_ifaces_btn.clicked.connect(self.refresh_capture_interfaces)
+            capture_bar.addWidget(refresh_ifaces_btn)
+
+            self.capture_start_btn = QPushButton("▶ Start selected")
+            self.capture_start_btn.clicked.connect(self.start_selected_capture)
+            capture_bar.addWidget(self.capture_start_btn)
+
+            self.capture_iface_status = QLabel("Selection pending; source unchanged")
+            self.capture_iface_status.setStyleSheet("color: #8e9cac;")
+            capture_bar.addWidget(self.capture_iface_status)
+            capture_bar.addStretch()
+            main_layout.addLayout(capture_bar)
+            self.refresh_capture_interfaces()
+
             self.tabs = QTabWidget()
             self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             main_layout.addWidget(self.tabs)
@@ -204,7 +262,107 @@ def main(nexus_extension=None):
 
             self.poll_timer = QTimer(self)
             self.poll_timer.timeout.connect(self.poll_data)
+            self.poll_timer.timeout.connect(self.update_capture_source_status)
             self.poll_timer.start(1500)
+
+        def refresh_capture_interfaces(self):
+            """Refresh local interface choices; no internet or carrier checks."""
+            selected = self.capture_iface_selector.currentData()
+            if not selected:
+                selected = os.environ.get("BCI_IFACE", "auto")
+            try:
+                choices = interface_choices()
+            except (OSError, ValueError, RuntimeError) as exc:
+                self.capture_iface_status.setText("Interface inspection unavailable")
+                self.terminal_out.append(
+                    "[BCI] Capture interface enumeration failed: " + str(exc)
+                ) if hasattr(self, "terminal_out") else None
+                return
+            self.capture_iface_selector.blockSignals(True)
+            self.capture_iface_selector.clear()
+            for choice in choices:
+                self.capture_iface_selector.addItem(choice["label"], choice["name"])
+            found = self.capture_iface_selector.findData(selected)
+            self.capture_iface_selector.setCurrentIndex(found if found >= 0 else 0)
+            self.capture_iface_selector.blockSignals(False)
+            self.update_capture_source_status()
+
+        def update_capture_source_status(self):
+            """Report the running source independently from the chosen interface."""
+            status_file = os.path.join(
+                os.path.dirname(STATE_FILE_PATH), "bci_runtime_status.json")
+            current = None
+            try:
+                if os.path.getsize(status_file) <= 65536:
+                    with open(status_file, encoding="utf-8") as stream:
+                        current = json.load(stream)
+            except (OSError, ValueError):
+                pass
+            if isinstance(current, dict):
+                name = current.get("iface", "?")
+                mode = current.get("capture_mode", "?")
+                state = current.get("capture_state", "?")
+                self.capture_iface_status.setText(
+                    f"Reported source: {name} [{mode}] — {state}")
+            else:
+                self.capture_iface_status.setText(
+                    "No active source report; selection applies on next start")
+
+        def start_selected_capture(self):
+            """Start the selected observer iff approved, never silently retune."""
+            if self.capture_start_worker and self.capture_start_worker.isRunning():
+                return
+            name = self.capture_iface_selector.currentData()
+            if name is None:
+                return
+            # Re-enumerate at the moment of approval; reject removed interfaces.
+            try:
+                choices = interface_choices()
+                if name not in [item["name"] for item in choices]:
+                    raise ValueError("Selected interface is no longer present")
+            except (OSError, ValueError, RuntimeError) as exc:
+                QMessageBox.warning(self, "Capture interface unavailable", str(exc))
+                return
+            installed_script = os.path.expanduser(
+                "~/BCI/Docker Projects/orbital/orbitalctl.sh")
+            if not os.path.isfile(installed_script):
+                QMessageBox.warning(
+                    self, "Sentinel not installed",
+                    "Install the updated BCISentinel- release into the existing "
+                    "~/BCI/Docker Projects/orbital directory before starting.")
+                return
+            answer = QMessageBox.question(
+                self, "Start Sentinel capture",
+                f"Selected: {name}\n\n"
+                "This starts Sentinel and Discovery if and only if they are "
+                "not already running and the project's startup gates pass.\n"
+                "No Wi-Fi mode, route, firewall, or NetworkManager changes will be made.\n"
+                "Only capture traffic you are authorized to observe.\n\n"
+                "Existing capture services will not be switched automatically. "
+                "Proceed?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.capture_start_btn.setEnabled(False)
+            self.capture_iface_status.setText("Starting selected capture...")
+            self.capture_start_worker = CaptureStartWorker(name, installed_script, self)
+            self.capture_start_worker.started_ok.connect(self.capture_started)
+            self.capture_start_worker.failed.connect(self.capture_start_failed)
+            self.capture_start_worker.finished.connect(
+                lambda: self.capture_start_btn.setEnabled(True))
+            self.capture_start_worker.start()
+
+        def capture_started(self, output):
+            self.capture_iface_status.setText("Capture services started; checking telemetry")
+            self.terminal_out.append("[BCI] CAPTURE START:\n" + output)
+            self.update_capture_source_status()
+
+        def capture_start_failed(self, error):
+            QMessageBox.warning(self, "Sentinel capture startup failed", error[-2400:])
+            self.terminal_out.append("[BCI] CAPTURE START FAILED:\n" + error)
+            self.update_capture_source_status()
 
         def init_dashboard_tab(self):
             layout = QVBoxLayout(self.tab_dashboard)
